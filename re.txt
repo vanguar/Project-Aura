@@ -1,0 +1,22 @@
+Создание вирт пространства
+python -m venv venv
+
+Активация виртуалки
+.\venv\Scripts\activate
+
+Запуск установку Next.js:
+npx create-next-app@latest frontend
+
+Установка иконок в папке cd frontend
+npm install lucide-react
+
+Запкскаем сервер разработчика
+npm run dev
+
+И запускаем команду в другом окне консоли
+uvicorn main:app --reload
+
+Переходим в браузере по ссылке
+http://localhost:3000
+
+или http://127.0.0.1:8000 
