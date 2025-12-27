@@ -1,13 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
-import subprocess
 from thefuzz import fuzz
 from transliterate import translit
 
 app = FastAPI()
 
-# Настройка CORS, чтобы смартфон и ноут могли общаться с бэкендом
+# Настройка CORS для связи фронтенда и бэкенда
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,97 +14,90 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Список плееров для автозапуска (Windows)
-KNOWN_PLAYERS = [
-    {"name": "VLC", "path": r"C:\Program Files\VideoLAN\VLC\vlc.exe", "args": ["--fullscreen"]},
-    {"name": "MPC-HC", "path": r"C:\Program Files\MPC-HC\mpc-hc64.exe", "args": ["/fullscreen"]}
+# Список расширений видео, которые мы ищем автоматически
+VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v'}
+
+# Стандартные пути Android для поиска медиа
+# /storage/emulated/0/ — это корень внутренней памяти
+SEARCH_ROOTS = [
+    '/storage/emulated/0/Movies',
+    '/storage/emulated/0/Download',
+    '/storage/emulated/0/DCIM',
+    '/storage/emulated/0/Viber'
 ]
 
-def open_file(file_path):
-    """Пытается открыть файл через известный плеер или средствами системы"""
-    opened = False
-    for player in KNOWN_PLAYERS:
-        if os.path.exists(player["path"]):
-            try:
-                subprocess.Popen([player["path"]] + player["args"] + [file_path])
-                opened = True
-                break
-            except:
-                continue
-    if not opened:
-        os.startfile(file_path)
+def open_on_android(file_path):
+    """Открывает файл через системный плеер Android (через Termux)"""
+    try:
+        # Команда termux-open передает файл системному приложению (например, VLC для Android)
+        os.system(f"termux-open '{file_path}'")
+        return True
+    except Exception as e:
+        print(f"⚠️ Ошибка запуска: {e}")
+        return False
 
-# Главная страница, чтобы не было 404 ошибки
+def get_all_videos():
+    """Автоматически находит все видео во всех папках из SEARCH_ROOTS"""
+    video_library = []
+    for root_dir in SEARCH_ROOTS:
+        if os.path.exists(root_dir):
+            for root, dirs, files in os.walk(root_dir):
+                for file in files:
+                    # Проверяем расширение файла
+                    if any(file.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
+                        video_library.append({
+                            "name": file.lower(),
+                            "path": os.path.join(root, file)
+                        })
+    return video_library
+
 @app.get("/")
 async def root():
-    return {
-        "status": "online",
-        "project": "Aura Assistive System",
-        "endpoints": {
-            "search": "/search-movie?query=название"
-        }
-    }
+    return {"status": "Aura Android Backend Online"}
 
 @app.get("/search-movie")
 async def search_movie(query: str):
-    print(f"🔎 Поступил запрос на поиск: {query}")
+    print(f"🔎 Голосовой запрос: {query}")
     try:
         if not query:
             return {"found": False, "error": "Пустой запрос"}
 
-        # Очистка запроса от лишних слов
+        # Очистка и подготовка вариантов поиска
         clean_query = query.lower().replace("запусти", "").replace("фильм", "").strip()
-        
-        # Создаем варианты (оригинал и транслит)
         variants = [clean_query]
         try:
-            # Превращаем "матрица" в "matritsa" для поиска по англ. именам файлов
             variants.append(translit(clean_query, 'ru', reversed=True))
-        except Exception as e:
-            print(f"⚠️ Ошибка транслитерации: {e}")
+        except:
+            pass
 
-        best_match_path = None
-        best_match_name = None
-        highest_score = 0
+        # Получаем актуальный список всех файлов на телефоне
+        videos = get_all_videos()
         
-        # ПАПКИ ДЛЯ ПОИСКА (проверь, что они есть на диске C)
-        ROOT_FOLDERS = [r"C:\Movies", r"C:\Users\tzvan\Videos"] 
+        best_match = None
+        highest_score = 0
 
-        for root_dir in ROOT_FOLDERS:
-            if os.path.exists(root_dir):
-                for root, dirs, files in os.walk(root_dir):
-                    for file in files:
-                        file_lower = file.lower()
-                        for var in variants:
-                            score = fuzz.partial_ratio(var, file_lower)
-                            if score > highest_score:
-                                highest_score = score
-                                best_match_path = os.path.join(root, file)
-                                best_match_name = file
+        for video in videos:
+            for var in variants:
+                score = fuzz.partial_ratio(var, video["name"])
+                if score > highest_score:
+                    highest_score = score
+                    best_match = video
 
-        if best_match_path and highest_score > 60:
-            print(f"✅ Найдено: {best_match_name} (Сходство: {highest_score}%)")
-            open_file(best_match_path)
+        if best_match and highest_score > 60:
+            print(f"✅ Найдено автоматически: {best_match['path']} ({highest_score}%)")
+            success = open_on_android(best_match['path'])
             return {
-                "found": True, 
-                "filename": best_match_name,
-                "path": best_match_path,
+                "found": success, 
+                "filename": os.path.basename(best_match['path']),
                 "score": highest_score
             }
         
-        print(f"❌ Ничего не найдено для '{query}'")
         return {"found": False, "score": highest_score}
 
     except Exception as e:
-        print(f"☢️ Критическая ошибка бэкенда: {e}")
+        print(f"☢️ Ошибка: {e}")
         return {"found": False, "error": str(e)}
 
-# Запуск сервера
 if __name__ == "__main__":
     import uvicorn
-    print("\n" + "="*50)
-    print("🚀 АУРА: Бэкенд запущен и готов к работе.")
-    print("📍 Доступ на ноуте: http://localhost:8000")
-    print("📍 Доступ в сети: http://0.0.0.0:8000")
-    print("="*50 + "\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)
