@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse # Добавлено для стриминга
 import os
 import platform
-import string # Добавлено для работы с буквами дисков
+import string 
+import urllib.parse # Добавлено для обработки путей
 from thefuzz import fuzz
 from transliterate import translit
 
@@ -17,29 +19,32 @@ app.add_middleware(
 
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v'}
 
-# --- ИЗМЕНЕНИЕ 1: Динамическое определение корней поиска ---
+# --- Определение корней поиска ---
 def get_search_roots():
     roots = []
     if platform.system() == "Windows":
-        # Находим все доступные диски от A до Z
         for letter in string.ascii_uppercase:
             drive = f"{letter}:\\"
             if os.path.exists(drive):
                 roots.append(drive)
     else:
-        # Для Android оставляем как было
-        roots = ['/storage/emulated/0/']
+        # Для Android используем папку, в которую ты перенес медиа
+        roots = ['/storage/emulated/0/Movies/Aura/']
     return roots
 
 SEARCH_ROOTS = get_search_roots()
 
-# --- ИЗМЕНЕНИЕ 2: Универсальное открытие файла ---
+# --- Универсальное открытие файла с фиксом для Android ---
 def open_file(file_path):
     try:
         if platform.system() == "Windows":
             os.startfile(file_path)
         else:
-            os.system(f"termux-open '{file_path}'")
+            # ФИКС: Вместо прямого пути передаем плееру HTTP-ссылку на этот же сервер
+            encoded_path = urllib.parse.quote(file_path)
+            stream_url = f"http://127.0.0.1:8000/video-stream?path={encoded_path}"
+            print(f"🚀 Запуск потока для плеера: {stream_url}")
+            os.system(f"termux-open '{stream_url}'")
         return True
     except Exception as e:
         print(f"⚠️ Ошибка запуска: {e}")
@@ -47,16 +52,13 @@ def open_file(file_path):
 
 def get_all_videos():
     video_library = []
-    # Папки, которые стоит пропускать, чтобы не тратить время и не вызывать ошибки доступа
     exclude_dirs = {'Windows', '$Recycle.Bin', 'Program Files', 'Program Files (x86)', 'AppData'}
     
     for root_dir in SEARCH_ROOTS:
         if os.path.exists(root_dir):
             print(f"🔎 Сканирую диск/путь: {root_dir}")
             for root, dirs, files in os.walk(root_dir):
-                # Исключаем системные папки из обхода
                 dirs[:] = [d for d in dirs if d not in exclude_dirs]
-                
                 for file in files:
                     if any(file.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
                         video_library.append({
@@ -68,6 +70,13 @@ def get_all_videos():
 @app.get("/")
 async def root():
     return {"status": "Aura Universal Backend Online"}
+
+# НОВЫЙ ЭНДПОИНТ: Отдает файл как поток (стриминг) для обхода защит Android
+@app.get("/video-stream")
+async def video_stream(path: str):
+    if os.path.exists(path):
+        return FileResponse(path)
+    return {"error": "File not found"}
 
 @app.get("/search-movie")
 async def search_movie(query: str):
@@ -83,7 +92,6 @@ async def search_movie(query: str):
         except:
             pass
 
-        # Получаем список видео (теперь со всех дисков)
         videos = get_all_videos()
         
         best_match = None
@@ -113,6 +121,5 @@ async def search_movie(query: str):
 
 if __name__ == "__main__":
     import uvicorn
-    # При запуске выводим список найденных дисков
     print(f"📀 Обнаружены диски для поиска: {SEARCH_ROOTS}")
     uvicorn.run(app, host="0.0.0.0", port=8000)
