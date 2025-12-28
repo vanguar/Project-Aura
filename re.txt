@@ -20,3 +20,6 @@ uvicorn main:app --reload
 http://localhost:3000
 
 или http://127.0.0.1:8000 
+
+Мой фронт
+https://vercel.com/vanguars-projects

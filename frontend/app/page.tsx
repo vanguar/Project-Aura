@@ -1,24 +1,20 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Film, Phone, Heart, Bell, Home, Settings } from 'lucide-react';
+import { Film, Phone, Heart, Bell, Settings, Youtube } from 'lucide-react';
 
 export default function AuraHome() {
   const [isListening, setIsListening] = useState(false);
-  const [statusText, setStatusText] = useState("Нажмите 'Фильмы' или скажите 'Домой'");
-  const [recognizedText, setRecognizedText] = useState("");
-  
-  // Состояние для IP-адреса телефона (мини-сервера)
-  const [serverIp, setServerIp] = useState("127.0.0.1"); 
+  const [statusText, setStatusText] = useState("Нажмите 'Фильмы'");
+  const [serverIp, setServerIp] = useState("127.0.0.1");
 
-  // При загрузке пытаемся подтянуть сохраненный IP из памяти браузера
   useEffect(() => {
     const savedIp = localStorage.getItem('aura_server_ip');
     if (savedIp) setServerIp(savedIp);
   }, []);
 
   const saveIp = () => {
-    const ip = prompt("Введите IP-адрес мини-сервера (например, 192.168.1.15):", serverIp);
+    const ip = prompt("Введите IP телефона мамы (из Termux):", serverIp);
     if (ip) {
       setServerIp(ip);
       localStorage.setItem('aura_server_ip', ip);
@@ -28,105 +24,97 @@ export default function AuraHome() {
   const playMovie = async (title: string) => {
     setStatusText(`Ищу: ${title}...`);
     try {
-      // Запрос идет на конкретный IP телефона, а не на домен Vercel
       const response = await fetch(`http://${serverIp}:8000/search-movie?query=${encodeURIComponent(title)}`);
       const data = await response.json();
-
-      if (data.found) {
-        setStatusText(`Играет: ${data.filename}`);
-      } else {
-        setStatusText("Фильм не найден в памяти телефона");
-      }
+      if (data.found) setStatusText(`Играет: ${data.filename}`);
+      else setStatusText("Фильм не найден");
     } catch (error) {
-      setStatusText("Нет связи с телефоном! Проверьте IP.");
+      setStatusText("Нет связи с телефоном!");
     }
     setIsListening(false);
   };
 
   const handleVoiceInput = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitRecognition;
     if (!SpeechRecognition) {
-      setStatusText("Браузер не поддерживает голос");
+      setStatusText("Голос не поддерживается");
       return;
     }
-
     const recognition = new SpeechRecognition();
     recognition.lang = 'ru-RU';
-    recognition.onstart = () => {
-      setIsListening(true);
-      setStatusText("Слушаю вас...");
-    };
-
+    recognition.onstart = () => setIsListening(true);
     recognition.onresult = (event: any) => {
       const text = event.results[0][0].transcript.toLowerCase();
-      setRecognizedText(text);
-      
-      if (text.includes("включи") || text.includes("запусти") || text.includes("найди")) {
-        const movieTitle = text.replace(/(включи|запусти|найди|фильм)/g, "").strip();
-        playMovie(movieTitle);
-      } else if (text.includes("домой")) {
-        window.location.reload();
-      } else {
-        setStatusText(`Не поняла команду: "${text}"`);
-        setIsListening(false);
-      }
+      const movieTitle = text.replace(/(включи|запусти|найди|фильм)/g, "").trim();
+      playMovie(movieTitle);
     };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-      setStatusText("Ошибка микрофона");
-    };
-
     recognition.start();
   };
 
+  // Функция для открытия YouTube (можно доработать на бэкенде позже)
+  const openYoutube = () => {
+    window.open("https://www.youtube.com", "_blank");
+  };
+
   return (
-    <main className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col p-6 overflow-hidden font-sans">
-      {/* Хедер с кнопкой настройки IP для тебя */}
-      <div className="flex justify-between items-center mb-8">
-        <div className="flex items-center gap-4">
-          <div className="w-6 h-6 rounded-full bg-blue-600 animate-pulse"></div>
-          <h1 className="text-4xl font-black tracking-tighter text-blue-500">AURA</h1>
-        </div>
+    // Убрали fixed и overflow-hidden, добавили min-h-screen для прокрутки
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-4 pb-20 font-sans">
+      
+      {/* Шапка */}
+      <div className="flex justify-between items-center mb-6 pt-2">
+        <h1 className="text-4xl font-black text-blue-500 tracking-tighter">AURA</h1>
         <button onClick={saveIp} className="p-4 bg-slate-800 rounded-full text-slate-400">
           <Settings size={30} />
         </button>
       </div>
 
-      {/* Статус-бар */}
-      <div className="mb-12 bg-slate-900/50 border-l-8 border-blue-600 p-8 rounded-2xl">
-        <p className="text-3xl font-medium text-slate-300 mb-2">Статус:</p>
-        <p className="text-5xl font-bold text-white leading-tight">{statusText}</p>
+      {/* Статус */}
+      <div className="mb-8 bg-slate-900 border-l-8 border-blue-600 p-6 rounded-2xl shadow-xl">
+        <p className="text-xl text-slate-400 mb-1">Статус:</p>
+        <p className="text-3xl font-bold leading-tight">{statusText}</p>
       </div>
 
-      {/* Сетка кнопок (минимум 1/4 экрана каждая) */}
-      <div className="grid grid-cols-2 gap-8 flex-grow">
+      {/* Сетка кнопок - теперь их 5 */}
+      <div className="grid grid-cols-2 gap-4">
+        
+        {/* КНОПКА ФИЛЬМЫ */}
         <button 
-          onClick={handleVoiceInput}
-          className={`relative overflow-hidden aspect-square flex flex-col items-center justify-center rounded-[50px] border-8 transition-all active:scale-95 ${
-            isListening 
-              ? 'border-green-400 bg-green-900/30 animate-pulse' 
-              : 'border-blue-500 bg-blue-600 shadow-[0_0_50px_rgba(37,99,235,0.4)]'
+          onClick={handleVoiceInput} 
+          className={`col-span-2 py-12 flex flex-col items-center justify-center rounded-[40px] border-8 transition-all active:scale-95 ${
+            isListening ? 'border-green-400 bg-green-900/20 animate-pulse' : 'border-blue-500 bg-blue-600 shadow-lg'
           }`}
         >
-          <Film size={140} strokeWidth={1.5} />
-          <span className="text-5xl font-black mt-6 tracking-widest uppercase">Фильмы</span>
+          <Film size={100} />
+          <span className="text-4xl font-black mt-4 uppercase">ФИЛЬМЫ</span>
         </button>
 
-        <button className="aspect-square flex flex-col items-center justify-center rounded-[50px] border-8 border-slate-800 bg-slate-800/50 opacity-50">
-          <Phone size={120} />
-          <span className="text-4xl font-bold mt-6 uppercase">Связь</span>
+        {/* КНОПКА ЮТУБ (НОВАЯ) */}
+        <button 
+          onClick={openYoutube}
+          className="aspect-square flex flex-col items-center justify-center rounded-[40px] border-8 border-red-600 bg-red-700 shadow-lg active:scale-95"
+        >
+          <Youtube size={80} />
+          <span className="text-2xl font-black mt-2 uppercase">YouTube</span>
         </button>
 
-        <button className="aspect-square flex flex-col items-center justify-center rounded-[50px] border-8 border-slate-800 bg-slate-800/50 opacity-50">
-          <Heart size={120} />
-          <span className="text-4xl font-bold mt-6 uppercase">Здоровье</span>
+        {/* КНОПКА СВЯЗЬ */}
+        <button className="aspect-square flex flex-col items-center justify-center rounded-[40px] border-8 border-slate-800 bg-slate-800/50 opacity-50">
+          <Phone size={60} />
+          <span className="text-2xl font-bold mt-2 uppercase">Связь</span>
         </button>
 
-        <button className="aspect-square flex flex-col items-center justify-center rounded-[50px] border-8 border-slate-800 bg-slate-800/50 opacity-50">
-          <Bell size={120} />
-          <span className="text-4xl font-bold mt-6 uppercase">Утилиты</span>
+        {/* КНОПКА ЗДОРОВЬЕ */}
+        <button className="aspect-square flex flex-col items-center justify-center rounded-[40px] border-8 border-slate-800 bg-slate-800/50 opacity-50">
+          <Heart size={60} />
+          <span className="text-2xl font-bold mt-2 uppercase">Здоровье</span>
         </button>
+
+        {/* КНОПКА УТИЛИТЫ */}
+        <button className="aspect-square flex flex-col items-center justify-center rounded-[40px] border-8 border-slate-800 bg-slate-800/50 opacity-50">
+          <Bell size={60} />
+          <span className="text-2xl font-bold mt-2 uppercase">Инфо</span>
+        </button>
+
       </div>
     </main>
   );
