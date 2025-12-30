@@ -5,8 +5,7 @@ import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff } from 'lucide
 
 export default function AuraHome() {
   const [view, setView] = useState<'home' | 'meds'>('home');
-  const [statusText, setStatusText] = useState("AURA готова к работе");
-  const [heardText, setHeardText] = useState("");
+  const [statusText, setStatusText] = useState("AURA готова");
   const [serverIp, setServerIp] = useState("127.0.0.1");
   const [medsSchedule, setMedsSchedule] = useState("");
   const [remindersActive, setRemindersActive] = useState(false);
@@ -17,7 +16,7 @@ export default function AuraHome() {
   }, []);
 
   const saveIp = () => {
-    const ip = prompt("IP телефона мамы:", serverIp);
+    const ip = prompt("Введите IP Termux:", serverIp);
     if (ip) {
       setServerIp(ip);
       localStorage.setItem('aura_server_ip', ip);
@@ -31,8 +30,8 @@ export default function AuraHome() {
       setMedsSchedule(data.schedule);
       setRemindersActive(data.enabled);
       setView('meds');
-    } catch (error) {
-      alert("Ошибка связи с Termux");
+    } catch (e) {
+      alert("Ошибка связи с сервером Termux");
     }
   };
 
@@ -40,9 +39,9 @@ export default function AuraHome() {
     try {
       await fetch(`http://${serverIp}:8000/enable-reminders`, { method: 'POST' });
       setRemindersActive(true);
-      alert("Тест запущен! Сигнал будет через 30 секунд.");
-    } catch (error) {
-      alert("Не удалось включить");
+      alert("ТЕСТ ЗАПУЩЕН! Напоминание сработает через 30 секунд.");
+    } catch (e) {
+      alert("Ошибка включения");
     }
   };
 
@@ -50,97 +49,94 @@ export default function AuraHome() {
     try {
       await fetch(`http://${serverIp}:8000/disable-reminders`, { method: 'POST' });
       setRemindersActive(false);
-    } catch (error) {
-      alert("Не удалось выключить");
+    } catch (e) {
+      alert("Ошибка выключения");
     }
   };
 
-  const startVoice = (mode: 'movie' | 'youtube') => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ru-RU';
-    recognition.onresult = async (event: any) => {
-      const text = event.results[0][0].transcript;
-      setHeardText(text);
-      const q = text.toLowerCase().replace(/(включи|запусти|найди|фильм|ютуб)/g, "").trim();
-      if (mode === 'movie') {
-        const res = await fetch(`http://${serverIp}:8000/search-movie?query=${encodeURIComponent(q)}`);
-        const data = await res.json();
-        setStatusText(data.found ? `✅ Играет: ${data.filename}` : "❌ Не найден");
-      } else {
-        window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`, "_blank");
-      }
-    };
-    recognition.start();
-  };
-
-  const MedControlButtons = () => (
-    <div className="flex gap-4 mb-6">
-      {!remindersActive ? (
-        <button 
-          onClick={enableReminders}
-          className="flex-grow py-12 bg-blue-600 rounded-[40px] text-4xl font-black uppercase border-8 border-blue-400 shadow-2xl flex items-center justify-center gap-4"
-        >
-          <Bell size={48} /> Включить напоминание
-        </button>
-      ) : (
-        <>
-          <button 
-            className="flex-[2] py-12 bg-green-600 rounded-[40px] text-3xl font-black uppercase border-8 border-green-400 shadow-2xl flex items-center justify-center gap-4"
-          >
-            <Bell size={48} /> Напоминание работает
-          </button>
-          <button 
-            onClick={disableReminders}
-            className="flex-1 py-12 bg-red-600 rounded-[40px] text-2xl font-black uppercase border-8 border-red-400 shadow-2xl active:bg-red-700 flex flex-col items-center justify-center"
-          >
-            <BellOff size={40} /> ВЫКЛЮЧИТЬ
-          </button>
-        </>
-      )}
-    </div>
-  );
-
+  // --- ЭКРАН ГРАФИКА ПРИЕМА ---
   if (view === 'meds') {
     return (
-      <main className="min-h-screen bg-slate-950 text-white p-4 flex flex-col font-sans">
-        <MedControlButtons />
-        <div className="flex-grow bg-slate-900 rounded-[40px] p-8 border-4 border-blue-900 overflow-y-auto mb-6 shadow-inner">
-          <pre className="text-3xl font-bold whitespace-pre-wrap leading-tight text-slate-100">
+      <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden">
+        {/* ВЕРХНЯЯ ПАНЕЛЬ УПРАВЛЕНИЯ (20% высоты) */}
+        <div className="h-[20vh] flex gap-2">
+          {!remindersActive ? (
+            <button 
+              onClick={enableReminders}
+              className="flex-1 bg-blue-600 rounded-3xl border-4 border-blue-400 text-2xl font-black uppercase flex items-center justify-center gap-2"
+            >
+              <Bell size={32} /> Включить
+            </button>
+          ) : (
+            <>
+              <div className="flex-[2] bg-green-600 rounded-3xl border-4 border-green-400 text-xl font-black uppercase flex items-center justify-center gap-2">
+                <Bell size={32} /> Работает
+              </div>
+              <button 
+                onClick={disableReminders}
+                className="flex-1 bg-red-600 rounded-3xl border-4 border-red-400 text-sm font-black uppercase flex flex-col items-center justify-center"
+              >
+                <BellOff size={24} /> ВЫКЛЮЧИТЬ
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* ГРАФИК (ГИБКИЙ БЛОК) */}
+        <div className="flex-1 bg-slate-900 rounded-3xl p-4 border-2 border-blue-900 overflow-y-auto shadow-inner">
+          <pre className="text-xl font-bold whitespace-pre-wrap leading-snug">
             {medsSchedule}
           </pre>
         </div>
-        <MedControlButtons />
+
+        {/* КНОПКА НАЗАД (10% высоты) */}
         <button 
           onClick={() => setView('home')}
-          className="w-full py-6 bg-slate-800 rounded-[30px] text-2xl font-bold uppercase flex items-center justify-center gap-4 border-4 border-slate-700"
+          className="h-[10vh] bg-slate-800 rounded-3xl text-xl font-bold uppercase flex items-center justify-center gap-4 border-2 border-slate-700"
         >
-          <ArrowLeft size={40} /> Назад
+          <ArrowLeft size={32} /> Назад в меню
         </button>
       </main>
     );
   }
 
+  // --- ГЛАВНЫЙ ЭКРАН ---
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 font-sans">
-      <div className="flex justify-between items-center mb-6 pt-2">
-        <h1 className="text-5xl font-black text-blue-500 tracking-tighter">AURA</h1>
-        <button onClick={saveIp} className="p-4 bg-slate-800 rounded-full border-2 border-slate-700 text-slate-400"><Settings size={40} /></button>
-      </div>
-      <div className="mb-8 bg-slate-900 border-l-8 border-blue-600 p-6 rounded-2xl shadow-xl">
-        <p className="text-3xl font-bold leading-tight">{statusText}</p>
-        {heardText && <p className="mt-4 text-xl text-green-400 italic">"{heardText}"</p>}
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <button onClick={() => startVoice('movie')} className="col-span-2 py-16 bg-blue-600 rounded-[50px] border-8 border-blue-500 active:scale-95 flex flex-col items-center">
-          <Film size={120} /><span className="text-5xl font-black mt-4 uppercase">ФИЛЬМЫ</span>
+    <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden">
+      {/* HEADER */}
+      <div className="h-[10vh] flex justify-between items-center px-4 bg-slate-900 rounded-3xl border border-slate-800">
+        <h1 className="text-3xl font-black text-blue-500 tracking-tighter">AURA</h1>
+        <button onClick={saveIp} className="p-3 bg-slate-800 rounded-full border border-slate-700">
+          <Settings size={28} />
         </button>
-        <button onClick={openMeds} className="col-span-2 py-16 bg-red-600 rounded-[50px] border-8 border-red-500 active:scale-95 flex flex-col items-center">
-          <Heart size={120} fill="white" /><span className="text-5xl font-black mt-4 uppercase text-center">Приём лекарств</span>
+      </div>
+
+      {/* STATUS */}
+      <div className="h-[12vh] bg-blue-900/20 border-l-4 border-blue-600 p-4 rounded-3xl flex items-center">
+        <p className="text-xl font-bold leading-tight">{statusText}</p>
+      </div>
+
+      {/* BUTTONS GRID */}
+      <div className="flex-1 flex flex-col gap-2">
+        <button className="flex-[2] bg-blue-600 rounded-[40px] border-8 border-blue-400 flex flex-col items-center justify-center shadow-2xl active:scale-95">
+          <Film size={80} />
+          <span className="text-4xl font-black mt-2 uppercase tracking-widest">ФИЛЬМЫ</span>
         </button>
-        <button onClick={() => startVoice('youtube')} className="col-span-2 py-10 bg-slate-800 rounded-[40px] border-8 border-slate-700 active:scale-95 flex flex-col items-center">
-          <Youtube size={80} /><span className="text-3xl font-black mt-2 uppercase">YouTube</span>
+
+        <button 
+          onClick={openMeds}
+          className="flex-[2] bg-red-600 rounded-[40px] border-8 border-red-400 flex flex-col items-center justify-center shadow-2xl active:scale-95"
+        >
+          <Heart size={80} fill="white" />
+          <span className="text-4xl font-black mt-2 uppercase tracking-widest text-center">ЛЕКАРСТВА</span>
+        </button>
+
+        <button 
+          onClick={() => window.open('https://youtube.com', '_blank')}
+          className="flex-1 bg-slate-800 rounded-[30px] border-4 border-slate-700 flex items-center justify-center gap-4 active:scale-95"
+        >
+          <Youtube size={40} />
+          <span className="text-2xl font-black uppercase">YouTube</span>
         </button>
       </div>
     </main>
