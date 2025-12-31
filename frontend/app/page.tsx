@@ -107,8 +107,10 @@ export default function AuraHome() {
   return (
     <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden">
       <div className="h-[10vh] flex justify-between items-center px-4 bg-slate-900 rounded-3xl border border-slate-800">
-        <h1 className="text-3xl font-black text-blue-500 tracking-tighter">AURA</h1>
-        <button onClick={saveIp} className="p-3 bg-slate-800 rounded-full border border-slate-700"><Settings size={28} /></button>
+        <h1 className="text-3xl font-black text-blue-500 tracking-tighter uppercase">AURA</h1>
+        <button onClick={saveIp} className="p-3 bg-slate-800 rounded-full border border-slate-700 active:bg-slate-700">
+          <Settings size={28} />
+        </button>
       </div>
       <div className="h-[12vh] bg-blue-900/20 border-l-4 border-blue-600 p-4 rounded-3xl flex flex-col justify-center">
         <p className="text-xl font-bold leading-tight">{statusText}</p>
