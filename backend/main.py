@@ -29,11 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ЛЕКАРСТВ ---
-reminders_enabled = False
-test_active = False
-test_trigger_time = 0
-
+# --- БЛОК 1: ГРАФИК ДЛЯ ЭКРАНА (ТОЛЬКО ТЕКСТ) ---
 MEDS_TEXT_SCHEDULE = """
 💊 ЩОДЕННИЙ РОЗКЛАД ПРИЙОМУ ЛІКІВ:
 
@@ -46,67 +42,52 @@ MEDS_TEXT_SCHEDULE = """
 🌆 19:00 — Габапентин 100 мг (1 капсула), Кветіапін 25 мг (1 табл.)
 🕗 20:00 — Леводопа 200/50 (½ таблетки)
 🌙 22:00 — Леводопа Retard (1 табл. НЕ ЛАМАТИ!), Кветіапін 25 мг (1 табл.)
-
-⚠️ ВАЖЛИВО: Леводопу Retard о 22:00 ковтати тільки цілою!
 """
 
+# --- БЛОК 2: ТЕХНИЧЕСКИЙ ПЛАН СРАБАТЫВАНИЯ (ЛОГИКА) ---
+# Здесь проставляй время и текст для озвучки. 
+# Используй заглавные буквы для ударений, если робот ошибается.
 MEDS_TIMETABLE = [
-    {"time": "05:00", "msg": "Мадопар мікстура, одна доза"},
-    {"time": "08:00", "msg": "Леводопа пів-таблетки, Ксадаго одна таблетка та Габапентин одна капсула"},
-    {"time": "11:00", "msg": "Леводопа, одна ціла таблетка"},
-    {"time": "13:00", "msg": "Габапентин, одна капсула"},
-    {"time": "14:00", "msg": "Леводопа, пів-таблетки"},
-    {"time": "17:00", "msg": "Леводопа, одна ціла таблетка"},
-    {"time": "19:00", "msg": "Габапентин одна капсула та Кветіапін одна таблетка"},
-    {"time": "20:00", "msg": "Леводопа, пів-таблетки"},
-    {"time": "22:00", "msg": "Увага! Леводопа Ретард ціла таблетка. Не ламати. Та Кветіапін одна таблетка"}
+    {"time": "05:00", "msg": "МадопАр мИкстура, одн+а дОза"},
+    {"time": "08:00", "msg": "ЛиводОпа пол-таблЕтки, КсадАго одн+а таблЕтка и ГабапентИн одн+а капсула"},
+    {"time": "11:00", "msg": "ЛиводОпа, одн+а цЕлая таблЕтка"},
+    {"time": "13:00", "msg": "ГабапентИн, одн+а кАпсула"},
+    {"time": "14:00", "msg": "ЛиводОпа, пол-таблЕтки"},
+    {"time": "17:00", "msg": "ЛиводОпа, одн+а цЕлая таблЕтка"},
+    {"time": "19:00", "msg": "ГабапентИн одн+а кАпсула и КветиапИн одн+а таблЕтка"},
+    {"time": "20:00", "msg": "ЛиводОпа, пол-таблЕтки"},
+    {"time": "22:00", "msg": "ЛиводОпа РетАрд цЕлая таблЕтка. Не ломАть. И КветиапИн одн+а таблЕтка"}
 ]
 
-# --- ОРИГИНАЛЬНЫЙ БЛОК: ПОИСК ФАЙЛОВ ---
-VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm'}
+reminders_enabled = False
+test_active = False
+test_trigger_time = 0
 
-def get_search_roots():
-    roots = []
-    if platform.system() == "Windows":
-        import string
-        for letter in string.ascii_uppercase:
-            drive = f"{letter}:\\"
-            if os.path.exists(drive): roots.append(drive)
-    else:
-        paths = [
-            '/storage/emulated/0/Movies/',
-            '/storage/emulated/0/Download/',
-            '/storage/emulated/0/DCIM/',
-            '/storage/emulated/0/Video/',
-            '/storage/emulated/0/' 
-        ]
-        for p in paths:
-            if os.path.exists(p): 
-                roots.append(p)
-                logger.info(f"📂 Папка доступна: {p}")
-    return roots
-
-SEARCH_ROOTS = get_search_roots()
-
-# --- ФОНОВЫЙ ПОТОК (ТЕСТ + МОНИТОРИНГ) ---
+# --- ФОНОВЫЙ ПОТОК КОНТРОЛЯ ВРЕМЕНИ ---
 def check_meds_worker():
     global reminders_enabled, test_active, test_trigger_time
+    logger.info("⚙️ Фоновий потік АУРА запущено")
     while True:
         now_ts = time.time()
         
-        # 1. ТЕСТ СИСТЕМЫ (через 30 секунд после включения)
+        # Логика ТЕСТА
         if test_active and now_ts >= test_trigger_time:
-            subprocess.run(['termux-notification', '--title', 'ТЕСТ АУРА', '--content', 'Система справна. Перевірка голосу та сповіщень успішна.'])
-            subprocess.run(['termux-tts-speak', 'Тестове нагадування успішне. Система Аура працює.'])
+            logger.info("🧪 ТЕСТ СПРАЦЮВАВ")
+            subprocess.run(['termux-notification', '--title', 'ТЕСТ АУРА', '--content', 'Система справна.', '--priority', 'high'])
+            # -r 0.9 замедляет речь, -p 1.0 — стандартный тон
+            subprocess.run(['termux-tts-speak', '-r', '0.9', 'Тестовая провЕрка пройдЕна. СистЕма Аура рабОтает.'])
             test_active = False
-
-        # 2. ШТАТНЫЙ МОНИТОРИНГ
+        
+        # Штатный режим
         if reminders_enabled:
-            now_hm = datetime.now().strftime("%H:%M")
+            current_hm = datetime.now().strftime("%H:%M")
             for item in MEDS_TIMETABLE:
-                if item["time"] == now_hm:
+                if item["time"] == current_hm:
+                    logger.info(f"🔔 СИГНАЛ: {item['time']}")
                     subprocess.run(['termux-notification', '--title', 'ПРИЙОМ ЛІКІВ', '--content', item['msg'], '--priority', 'high'])
-                    subprocess.run(['termux-tts-speak', f"Мама, час приймати ліки. {item['msg']}"])
+                    # Озвучка с замедлением для четкости
+                    voice_text = f"Мама, порА принимАть лекАрства. {item['msg']}"
+                    subprocess.run(['termux-tts-speak', '-r', '0.8', voice_text])
                     time.sleep(61)
         
         time.sleep(1)
@@ -133,7 +114,32 @@ async def disable_reminders():
     test_active = False
     return {"status": "disabled"}
 
-# --- ОРИГИНАЛЬНЫЙ БЛОК: СТРИМИНГ И ПОИСК ФИЛЬМОВ ---
+# --- ОРИГИНАЛЬНЫЙ БЛОК: ПОИСК И СТРИМИНГ ФИЛЬМОВ ---
+VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm'}
+
+def get_search_roots():
+    roots = []
+    if platform.system() == "Windows":
+        import string
+        for letter in string.ascii_uppercase:
+            drive = f"{letter}:\\"
+            if os.path.exists(drive): roots.append(drive)
+    else:
+        paths = [
+            '/storage/emulated/0/Movies/',
+            '/storage/emulated/0/Download/',
+            '/storage/emulated/0/DCIM/',
+            '/storage/emulated/0/Video/',
+            '/storage/emulated/0/' 
+        ]
+        for p in paths:
+            if os.path.exists(p): 
+                roots.append(p)
+                logger.info(f"📂 Папка доступна: {p}")
+    return roots
+
+SEARCH_ROOTS = get_search_roots()
+
 def open_file_http(file_path):
     try:
         encoded_path = urllib.parse.quote(file_path)
@@ -161,7 +167,8 @@ def get_all_videos():
 @app.get("/video-stream")
 async def video_stream(path: str, request: Request):
     decoded_path = urllib.parse.unquote(path)
-    if not os.path.exists(decoded_path): return {"error": "File not found"}
+    if not os.path.exists(decoded_path):
+        return {"error": "File not found"}
     file_size = os.path.getsize(decoded_path)
     range_header = request.headers.get("range")
     media_type = "video/mp4"
@@ -171,7 +178,6 @@ async def video_stream(path: str, request: Request):
         start = int(byte_range[0])
         end = int(byte_range[1]) if byte_range[1] else file_size - 1
         chunk_size = (end - start) + 1
-        
         def iterfile():
             with open(decoded_path, "rb") as f:
                 f.seek(start)
@@ -181,7 +187,6 @@ async def video_stream(path: str, request: Request):
                     if not data: break
                     yield data
                     remaining -= len(data)
-        
         return StreamingResponse(
             iterfile(),
             status_code=206,
@@ -207,14 +212,12 @@ async def search_movie(query: str):
         videos = get_all_videos()
         best_match = None
         highest_score = 0
-        
         for video in videos:
             for var in variants:
                 score = fuzz.token_set_ratio(var, video["name"])
                 if score > highest_score:
                     highest_score = score
                     best_match = video
-
         if best_match and highest_score > 60:
             success = open_file_http(best_match['path'])
             return {"found": success, "filename": os.path.basename(best_match['path'])}
@@ -224,7 +227,8 @@ async def search_movie(query: str):
         return {"found": False}
 
 @app.get("/")
-async def root(): return {"status": "ONLINE"}
+async def root():
+    return {"status": "ONLINE", "ready": True, "reminders_active": reminders_enabled}
 
 if __name__ == "__main__":
     import uvicorn
