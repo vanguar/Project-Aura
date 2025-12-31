@@ -34,7 +34,6 @@ reminders_enabled = False
 test_active = False
 test_trigger_time = 0
 
-# Графік для екрану
 MEDS_TEXT_SCHEDULE = """
 💊 ЩОДЕННИЙ РОЗКЛАД ПРИЙОМУ ЛІКІВ:
 
@@ -51,7 +50,7 @@ MEDS_TEXT_SCHEDULE = """
 ⚠️ ВАЖЛИВО: Леводопу Retard о 22:00 ковтати тільки цілою!
 """
 
-# Технічний план озвучки (Чиста українська мова з наголосами)
+# Технічний план (Озвучка чистою українською з наголосами)
 MEDS_TIMETABLE = [
     {"time": "05:00", "msg": "МадопАр мікстУра, однА дОза"},
     {"time": "08:00", "msg": "ЛеводОпа половИна таблЕтки, КсадАго однА таблЕтка та ГабапентІн однА кАпсула"},
@@ -75,8 +74,8 @@ def check_meds_worker():
         if test_active and now_ts >= test_trigger_time:
             logger.info("🧪 ТЕСТ СПРАЦЮВАВ")
             subprocess.run(['termux-notification', '--title', 'ТЕСТ АУРА', '--content', 'Система справна.'])
-            # Примусово українська мова (-l uk)
-            subprocess.run(['termux-tts-speak', '-l', 'uk', '-r', '1.0', 'ПеревІрка успішна. Аура працює нормально.'])
+            # Використовуємо -l uk-UA для чистої вимови
+            subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '1.0', 'ПеревІрка успішна. Аура працює нормально.'])
             test_active = False
         
         # 2. ШТАТНИЙ МОНІТОРИНГ
@@ -85,9 +84,9 @@ def check_meds_worker():
             for item in MEDS_TIMETABLE:
                 if item["time"] == current_hm:
                     logger.info(f"🔔 СИГНАЛ: {item['time']}")
-                    subprocess.run(['termux-notification', '--title', 'ПРИЙОМ ЛІКІВ', '--content', item['msg'], '--priority', 'high'])
+                    subprocess.run(['termux-notification', '--title', 'ПРИЙОМ ЛІКІВ', '--content', item['msg']])
                     voice_text = f"Мамо, час приймати ліки. {item['msg']}"
-                    subprocess.run(['termux-tts-speak', '-l', 'uk', '-r', '0.8', voice_text])
+                    subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '0.8', voice_text])
                     time.sleep(61)
         
         time.sleep(1)
@@ -114,7 +113,7 @@ async def disable_reminders():
     test_active = False
     return {"status": "disabled"}
 
-# --- ОРИГІНАЛЬНИЙ БЛОК: ПОШУК ТА СТРІМІНГ ---
+# --- ПОШУК ТА СТРІМІНГ ---
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm'}
 
 def get_search_roots():
@@ -130,7 +129,7 @@ def open_file_http(file_path):
     try:
         encoded_path = urllib.parse.quote(file_path)
         stream_url = f"http://127.0.0.1:8000/video-stream?path={encoded_path}"
-        subprocess.run(['termux-open', stream_url, '--choose', '--content-type', 'video/*'], capture_output=True, text=True)
+        subprocess.run(['termux-open', stream_url, '--choose', '--content-type', 'video/*'])
         return True
     except: return False
 
