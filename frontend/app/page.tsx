@@ -19,7 +19,7 @@ export default function AuraHome() {
   }, []);
 
   const saveIp = () => {
-    const ip = prompt("Введите IP Termux:", serverIp);
+    const ip = prompt("Введіть IP Termux:", serverIp);
     if (ip) { setServerIp(ip); localStorage.setItem('aura_server_ip', ip); }
   };
 
@@ -30,41 +30,41 @@ export default function AuraHome() {
       setMedsSchedule(data.schedule);
       setRemindersActive(data.enabled);
       setView('meds');
-    } catch (e) { alert("Ошибка связи с сервером"); }
+    } catch (e) { alert("Помилка зв'язку з сервером"); }
   };
 
   const enableReminders = async () => {
     try {
       await fetch(`http://${serverIp}:8000/enable-reminders`, { method: 'POST' });
       setRemindersActive(true);
-      alert("ТЕСТ ЗАПУЩЕН! Ждите 30 секунд.");
-    } catch (e) { alert("Ошибка включения"); }
+      alert("ТЕСТ ЗАПУЩЕНО! Зачекайте 30 секунд.");
+    } catch (e) { alert("Помилка увімкнення"); }
   };
 
   const disableReminders = async () => {
     try {
       await fetch(`http://${serverIp}:8000/disable-reminders`, { method: 'POST' });
       setRemindersActive(false);
-    } catch (e) { alert("Ошибка выключения"); }
+    } catch (e) { alert("Помилка вимкнення"); }
   };
 
   const startVoice = (mode: 'movie' | 'youtube') => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
     const recognition = new SpeechRecognition();
-    recognition.lang = 'ru-RU';
+    recognition.lang = 'uk-UA';
 
     recognition.onstart = () => { setIsListening(true); setActiveMode(mode); setHeardText(""); };
     recognition.onresult = async (event: any) => {
       const text = event.results[0][0].transcript;
       setHeardText(text);
-      const q = text.toLowerCase().replace(/(включи|запусти|найди|фильм|ютуб|youtube)/g, "").trim();
+      const q = text.toLowerCase().replace(/(включи|запусти|знайди|фільм|ютуб|youtube)/g, "").trim();
 
       if (mode === 'movie') {
-        setStatusText(`Ищу фильм: ${q}...`);
+        setStatusText(`Шукаю фільм: ${q}...`);
         const res = await fetch(`http://${serverIp}:8000/search-movie?query=${encodeURIComponent(q)}`);
         const data = await res.json();
-        setStatusText(data.found ? `✅ Играет: ${data.filename}` : "❌ Фильм не найден");
+        setStatusText(data.found ? `✅ Грає: ${data.filename}` : "❌ Фільм не знайдено");
       } else {
         window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`, "_blank");
       }
@@ -73,22 +73,22 @@ export default function AuraHome() {
     recognition.start();
   };
 
-  // --- ЭКРАН ЛЕКАРСТВ ---
+  // --- ЕКРАН ЛІКІВ ---
   if (view === 'meds') {
     return (
       <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden">
         <div className="h-[20vh] flex gap-2">
           {!remindersActive ? (
             <button onClick={enableReminders} className="flex-1 bg-blue-600 rounded-3xl border-4 border-blue-400 text-2xl font-black uppercase flex items-center justify-center gap-2">
-              <Bell size={32} /> Включить
+              <Bell size={32} /> УВІМКНУТИ
             </button>
           ) : (
             <>
               <div className="flex-[2] bg-green-600 rounded-3xl border-4 border-green-400 text-xl font-black uppercase flex items-center justify-center gap-2">
-                <Bell size={32} /> Работает
+                <Bell size={32} /> ПРАЦЮЄ
               </div>
               <button onClick={disableReminders} className="flex-1 bg-red-600 rounded-3xl border-4 border-red-400 text-sm font-black uppercase flex flex-col items-center justify-center">
-                <BellOff size={24} /> ВЫКЛЮЧИТЬ
+                <BellOff size={24} /> ВИМКНУТИ
               </button>
             </>
           )}
@@ -97,13 +97,13 @@ export default function AuraHome() {
           <pre className="text-xl font-bold whitespace-pre-wrap leading-tight">{medsSchedule}</pre>
         </div>
         <button onClick={() => setView('home')} className="h-[10vh] bg-slate-800 rounded-3xl text-xl font-bold uppercase flex items-center justify-center gap-4">
-          <ArrowLeft size={32} /> Назад
+          <ArrowLeft size={32} /> НАЗАД
         </button>
       </main>
     );
   }
 
-  // --- ГЛАВНЫЙ ЭКРАН ---
+  // --- ГОЛОВНИЙ ЕКРАН ---
   return (
     <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden">
       <div className="h-[10vh] flex justify-between items-center px-4 bg-slate-900 rounded-3xl border border-slate-800">
@@ -119,13 +119,13 @@ export default function AuraHome() {
           onClick={() => startVoice('movie')} 
           className={`flex-[2] rounded-[40px] border-8 flex flex-col items-center justify-center active:scale-95 ${isListening && activeMode === 'movie' ? 'bg-green-600 border-green-400 animate-pulse' : 'bg-blue-600 border-blue-500'}`}
         >
-          <Film size={80} /><span className="text-4xl font-black mt-2 uppercase">ФИЛЬМЫ</span>
+          <Film size={80} /><span className="text-4xl font-black mt-2 uppercase tracking-widest">ФІЛЬМИ</span>
         </button>
         <button 
           onClick={openMeds} 
           className="flex-[2] bg-red-600 rounded-[40px] border-8 border-red-400 flex flex-col items-center justify-center active:scale-95"
         >
-          <Heart size={80} fill="white" /><span className="text-4xl font-black mt-2 uppercase">ЛЕКАРСТВА</span>
+          <Heart size={80} fill="white" /><span className="text-4xl font-black mt-2 uppercase tracking-widest">ЛІКИ</span>
         </button>
         <button 
           onClick={() => startVoice('youtube')}
