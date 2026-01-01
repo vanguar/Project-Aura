@@ -118,12 +118,24 @@ VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm'}
 
 def get_search_roots():
     roots = []
-    paths = ['/storage/emulated/0/Movies/', '/storage/emulated/0/Download/', '/storage/emulated/0/DCIM/', '/storage/emulated/0/']
-    for p in paths:
-        if os.path.exists(p): roots.append(p)
+    # 1. Внутренняя память телефона
+    internal_storage = '/storage/emulated/0/'
+    if os.path.exists(internal_storage):
+        roots.append(internal_storage)
+    
+    # 2. Поиск внешних SD-карт и USB-флешок
+    try:
+        if os.path.exists('/storage/'):
+            for item in os.listdir('/storage/'):
+                # Пропускаем системные ссылки, ищем именно накопители (типа 1234-ABCD)
+                if item not in ['emulated', 'self', 'knox-emulated']:
+                    sd_path = os.path.join('/storage/', item)
+                    if os.path.isdir(sd_path):
+                        roots.append(sd_path)
+    except Exception as e:
+        logger.error(f"Ошибка при поиске SD-карт: {e}")
+        
     return roots
-
-SEARCH_ROOTS = get_search_roots()
 
 def open_file_http(file_path):
     try:
@@ -135,14 +147,26 @@ def open_file_http(file_path):
 
 def get_all_videos():
     video_library = []
+    # Папки, в которые лезть не стоит (там системный мусор или куча мелких кэшей)
     exclude_dirs = {'Android', 'LOST.DIR', '.thumbnails', 'Data', 'Telegram', 'Backups'}
-    for root_dir in SEARCH_ROOTS:
-        if os.path.exists(root_dir):
-            for root, dirs, files in os.walk(root_dir):
-                dirs[:] = [d for d in dirs if d not in exclude_dirs]
-                for file in files:
-                    if any(file.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
-                        video_library.append({"name": file.lower(), "path": os.path.join(root, file)})
+    
+    search_paths = get_search_roots()
+    logger.info(f"🔍 Начинаю глобальный поиск видео в: {search_paths}")
+    
+    for root_dir in search_paths:
+        for root, dirs, files in os.walk(root_dir):
+            # Быстрая фильтрация ненужных папок
+            dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith('.')]
+            
+            for file in files:
+                if any(file.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
+                    full_path = os.path.join(root, file)
+                    video_library.append({
+                        "name": file.lower(), 
+                        "path": full_path
+                    })
+    
+    logger.info(f"✅ Найдено видеофайлов: {len(video_library)}")
     return video_library
 
 @app.get("/video-stream")
