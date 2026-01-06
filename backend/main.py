@@ -63,28 +63,35 @@ MEDS_TIMETABLE = [
     {"time": "22:00", "msg": "ЛеводОпа РетАрд цІла таблЕтка. Не ламати. Та КветіапІн однА таблЕтка"}
 ]
 
+# --- ФОНОВИЙ ПОТІК ---
 def check_meds_worker():
     global reminders_enabled, test_active, test_trigger_time
     logger.info("⚙️ Фоновий потік АУРА запущено")
     while True:
         now_ts = time.time()
+        
+        # Тестовий запуск системи
         if test_active and now_ts >= test_trigger_time:
             subprocess.run(['termux-notification', '--title', 'ТЕСТ АУРА', '--content', 'Система справна.'])
-            subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '1.0', 'ПеревІрка успішна.'])
+            subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '1.0', 'ПеревІрка успішна. Аура працює нормально.'])
             test_active = False
         
+        # Моніторинг ліків
         if reminders_enabled:
             current_hm = datetime.now().strftime("%H:%M")
             for item in MEDS_TIMETABLE:
                 if item["time"] == current_hm:
+                    logger.info(f"🔔 ПРИЙОМ ЛІКІВ: {item['time']}")
                     subprocess.run(['termux-notification', '--title', 'ПРИЙОМ ЛІКІВ', '--content', item['msg']])
                     voice_text = f"Мамо, час приймати ліки. {item['msg']}"
                     subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '0.8', voice_text])
-                    time.sleep(61)
+                    time.sleep(61) # Щоб не спрацювало кілька разів на хвилину
+        
         time.sleep(1)
 
 threading.Thread(target=check_meds_worker, daemon=True).start()
 
+# --- ЕНДПОЇНТИ КЕРУВАННЯ ---
 @app.get("/get-meds-schedule")
 async def get_meds_schedule():
     return {"schedule": MEDS_TEXT_SCHEDULE, "enabled": reminders_enabled}
@@ -104,7 +111,7 @@ async def disable_reminders():
     test_active = False
     return {"status": "disabled"}
 
-# --- ПОШУК ТА СТРІМІНГ ---
+# --- ЛОГІКА ПОШУКУ ТА СТРІМІНГУ ---
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm'}
 
 def get_search_roots():
@@ -117,41 +124,50 @@ def get_search_roots():
                 if item not in ['emulated', 'self', 'knox-emulated']:
                     sd_path = os.path.join('/storage/', item)
                     if os.path.isdir(sd_path): roots.append(sd_path)
-    except Exception as e: logger.error(f"SD Error: {e}")
+    except Exception as e:
+        logger.error(f"Помилка пошуку дисків: {e}")
     return roots
 
 def open_file_http(file_path):
     try:
-        # ВАЖЛИВО: Очищаємо плеєр перед новим запуском
+        # Примусово закриваємо VLC, щоб очистити пам'ять та кеш кодеків
         subprocess.run(['am', 'force-stop', 'org.videolan.vlc'], stderr=subprocess.DEVNULL)
         time.sleep(0.5)
 
         encoded_path = urllib.parse.quote(file_path)
-        # Додаємо timestamp для унікальності URL
+        # Додаємо унікальну мітку часу до URL для обходу кешування плеєра
         ts = int(time.time())
         stream_url = f"http://127.0.0.1:8000/video-stream?path={encoded_path}&t={ts}"
+        
+        # Запуск через termux-open (без --choose для миттєвого старту)
         subprocess.run(['termux-open', stream_url, '--content-type', 'video/*'])
         return True
-    except: return False
+    except Exception as e:
+        logger.error(f"Помилка запуску файлу: {e}")
+        return False
 
 def get_all_videos():
     video_library = []
     exclude_dirs = {'Android', 'LOST.DIR', '.thumbnails', 'Data', 'Telegram', 'Backups'}
     search_paths = get_search_roots()
+    
     for root_dir in search_paths:
         for root, dirs, files in os.walk(root_dir):
             dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith('.')]
             for file in files:
                 if any(file.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
-                    video_library.append({"name": file.lower(), "path": os.path.join(root, file)})
+                    video_library.append({
+                        "name": file.lower(), 
+                        "path": os.path.join(root, file)
+                    })
     return video_library
 
 @app.get("/video-stream")
 async def video_stream(path: str, request: Request):
     decoded_path = urllib.parse.unquote(path)
-    if not os.path.exists(decoded_path): return {"error": "File not found"}
+    if not os.path.exists(decoded_path): raise HTTPException(status_code=404)
     
-    # Визначаємо справжній MIME-тип файлу
+    # Визначаємо MIME-тип автоматично (.mkv не буде відкриватися як .mp4)
     mime_type, _ = mimetypes.guess_type(decoded_path)
     mime_type = mime_type or "video/mp4"
     
@@ -163,44 +179,66 @@ async def video_stream(path: str, request: Request):
         start = int(byte_range[0])
         end = int(byte_range[1]) if byte_range[1] else file_size - 1
         chunk_size = (end - start) + 1
+        
         def iterfile():
             with open(decoded_path, "rb") as f:
                 f.seek(start)
                 remaining = chunk_size
                 while remaining > 0:
-                    # Буфер 1МБ для стабільності
+                    # Збільшений буфер 1МБ для стабільності на важких файлах
                     data = f.read(min(1048576, remaining))
                     if not data: break
                     yield data
                     remaining -= len(data)
+                    
         return StreamingResponse(iterfile(), status_code=206, media_type=mime_type, headers={
-            "Content-Range": f"bytes {start}-{end}/{file_size}", 
-            "Accept-Ranges": "bytes", 
-            "Content-Length": str(chunk_size)})
-            
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(chunk_size)
+        })
+        
     return StreamingResponse(open(decoded_path, "rb"), media_type=mime_type)
 
 @app.get("/search-movie")
 async def search_movie(query: str):
     if not query: return {"found": False}
+    
     clean_query = query.lower().replace("запусти", "").replace("фільм", "").replace("фильм", "").strip()
+    
     variants = [clean_query]
-    try: variants.append(translit(clean_query, 'ru', reversed=True))
-    except: pass
+    try:
+        variants.append(translit(clean_query, 'ru', reversed=True))
+    except:
+        pass
+        
     videos = get_all_videos()
     best_match, highest_score = None, 0
+    
     for video in videos:
+        # Очищуємо ім'я файлу від розширення для порівняння
+        file_display_name = os.path.splitext(video["name"])[0]
+        
         for var in variants:
-            score = fuzz.token_set_ratio(var, video["name"])
-            if score > highest_score: highest_score, best_match = score, video
-    if best_match and highest_score > 60:
+            # WRatio найкраще підходить для довгих назв з роками та режисерами
+            score = fuzz.WRatio(var, file_display_name)
+            if score > highest_score:
+                highest_score = score
+                best_match = video
+                
+    # Поріг 60% для стабільної роботи при нечіткій дикції
+    if best_match and highest_score >= 60:
+        logger.info(f"🎯 Фільм знайдено ({highest_score}%): {best_match['name']}")
         success = open_file_http(best_match['path'])
-        return {"found": success, "filename": os.path.basename(best_match['path'])}
+        return {"found": success, "filename": os.path.basename(best_match['path']), "score": highest_score}
+        
+    logger.info(f"🔍 Нічого не знайдено для '{clean_query}'. Найкращий результат: {highest_score}%")
     return {"found": False}
 
 @app.get("/")
-async def root(): return {"status": "ONLINE"}
+async def root():
+    return {"status": "ONLINE", "project": "AURA"}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Запуск сервера на смартфоні
+    uvicorn.run(app, host="0.0.0.0", port=8000, workers=1)
