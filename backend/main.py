@@ -5,6 +5,7 @@ import urllib.parse
 import time
 import logging
 import threading
+import mimetypes
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,10 +48,9 @@ MEDS_TEXT_SCHEDULE = """
 🕗 20:00 — Леводопа 200/50 (½ таблетки)
 🌙 22:00 — Леводопа Retard (1 табл. НЕ ЛАМАТИ!), Кветіапін 25 мг (1 табл.)
 
-⚠️ ВАЖЛИВО: Леводопу Retard о 22:00 ковтати тільки цілою!
+⚠️ ВАЖЛИВО: Леводопу Retard о 22:00 ковтати только цілою!
 """
 
-# Технічний план (Озвучка чистою українською з наголосами)
 MEDS_TIMETABLE = [
     {"time": "05:00", "msg": "МадопАр мікстУра, однА дОза"},
     {"time": "08:00", "msg": "ЛеводОпа половИна таблЕтки, КсадАго однА таблЕтка та ГабапентІн однА кАпсула"},
@@ -63,37 +63,28 @@ MEDS_TIMETABLE = [
     {"time": "22:00", "msg": "ЛеводОпа РетАрд цІла таблЕтка. Не ламати. Та КветіапІн однА таблЕтка"}
 ]
 
-# --- ФОНОВИЙ ПОТІК (ТЕСТ + МОНІТОРИНГ) ---
 def check_meds_worker():
     global reminders_enabled, test_active, test_trigger_time
     logger.info("⚙️ Фоновий потік АУРА запущено")
     while True:
         now_ts = time.time()
-        
-        # 1. ТЕСТ СИСТЕМИ
         if test_active and now_ts >= test_trigger_time:
-            logger.info("🧪 ТЕСТ СПРАЦЮВАВ")
             subprocess.run(['termux-notification', '--title', 'ТЕСТ АУРА', '--content', 'Система справна.'])
-            # Використовуємо -l uk-UA для чистої вимови
-            subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '1.0', 'ПеревІрка успішна. Аура працює нормально.'])
+            subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '1.0', 'ПеревІрка успішна.'])
             test_active = False
         
-        # 2. ШТАТНИЙ МОНІТОРИНГ
         if reminders_enabled:
             current_hm = datetime.now().strftime("%H:%M")
             for item in MEDS_TIMETABLE:
                 if item["time"] == current_hm:
-                    logger.info(f"🔔 СИГНАЛ: {item['time']}")
                     subprocess.run(['termux-notification', '--title', 'ПРИЙОМ ЛІКІВ', '--content', item['msg']])
                     voice_text = f"Мамо, час приймати ліки. {item['msg']}"
                     subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '0.8', voice_text])
                     time.sleep(61)
-        
         time.sleep(1)
 
 threading.Thread(target=check_meds_worker, daemon=True).start()
 
-# --- ЕНДПОЇНТИ ---
 @app.get("/get-meds-schedule")
 async def get_meds_schedule():
     return {"schedule": MEDS_TEXT_SCHEDULE, "enabled": reminders_enabled}
@@ -118,63 +109,55 @@ VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm'}
 
 def get_search_roots():
     roots = []
-    # 1. Внутренняя память телефона
     internal_storage = '/storage/emulated/0/'
-    if os.path.exists(internal_storage):
-        roots.append(internal_storage)
-    
-    # 2. Поиск внешних SD-карт и USB-флешок
+    if os.path.exists(internal_storage): roots.append(internal_storage)
     try:
         if os.path.exists('/storage/'):
             for item in os.listdir('/storage/'):
-                # Пропускаем системные ссылки, ищем именно накопители (типа 1234-ABCD)
                 if item not in ['emulated', 'self', 'knox-emulated']:
                     sd_path = os.path.join('/storage/', item)
-                    if os.path.isdir(sd_path):
-                        roots.append(sd_path)
-    except Exception as e:
-        logger.error(f"Ошибка при поиске SD-карт: {e}")
-        
+                    if os.path.isdir(sd_path): roots.append(sd_path)
+    except Exception as e: logger.error(f"SD Error: {e}")
     return roots
 
 def open_file_http(file_path):
     try:
+        # ВАЖЛИВО: Очищаємо плеєр перед новим запуском
+        subprocess.run(['am', 'force-stop', 'org.videolan.vlc'], stderr=subprocess.DEVNULL)
+        time.sleep(0.5)
+
         encoded_path = urllib.parse.quote(file_path)
-        stream_url = f"http://127.0.0.1:8000/video-stream?path={encoded_path}"
-        subprocess.run(['termux-open', stream_url, '--choose', '--content-type', 'video/*'])
+        # Додаємо timestamp для унікальності URL
+        ts = int(time.time())
+        stream_url = f"http://127.0.0.1:8000/video-stream?path={encoded_path}&t={ts}"
+        subprocess.run(['termux-open', stream_url, '--content-type', 'video/*'])
         return True
     except: return False
 
 def get_all_videos():
     video_library = []
-    # Папки, в которые лезть не стоит (там системный мусор или куча мелких кэшей)
     exclude_dirs = {'Android', 'LOST.DIR', '.thumbnails', 'Data', 'Telegram', 'Backups'}
-    
     search_paths = get_search_roots()
-    logger.info(f"🔍 Начинаю глобальный поиск видео в: {search_paths}")
-    
     for root_dir in search_paths:
         for root, dirs, files in os.walk(root_dir):
-            # Быстрая фильтрация ненужных папок
             dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith('.')]
-            
             for file in files:
                 if any(file.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
-                    full_path = os.path.join(root, file)
-                    video_library.append({
-                        "name": file.lower(), 
-                        "path": full_path
-                    })
-    
-    logger.info(f"✅ Найдено видеофайлов: {len(video_library)}")
+                    video_library.append({"name": file.lower(), "path": os.path.join(root, file)})
     return video_library
 
 @app.get("/video-stream")
 async def video_stream(path: str, request: Request):
     decoded_path = urllib.parse.unquote(path)
     if not os.path.exists(decoded_path): return {"error": "File not found"}
+    
+    # Визначаємо справжній MIME-тип файлу
+    mime_type, _ = mimetypes.guess_type(decoded_path)
+    mime_type = mime_type or "video/mp4"
+    
     file_size = os.path.getsize(decoded_path)
     range_header = request.headers.get("range")
+    
     if range_header:
         byte_range = range_header.replace("bytes=", "").split("-")
         start = int(byte_range[0])
@@ -185,13 +168,17 @@ async def video_stream(path: str, request: Request):
                 f.seek(start)
                 remaining = chunk_size
                 while remaining > 0:
-                    data = f.read(min(65536, remaining))
+                    # Буфер 1МБ для стабільності
+                    data = f.read(min(1048576, remaining))
                     if not data: break
                     yield data
                     remaining -= len(data)
-        return StreamingResponse(iterfile(), status_code=206, media_type="video/mp4", headers={
-            "Content-Range": f"bytes {start}-{end}/{file_size}", "Accept-Ranges": "bytes", "Content-Length": str(chunk_size)})
-    return StreamingResponse(open(decoded_path, "rb"), media_type="video/mp4")
+        return StreamingResponse(iterfile(), status_code=206, media_type=mime_type, headers={
+            "Content-Range": f"bytes {start}-{end}/{file_size}", 
+            "Accept-Ranges": "bytes", 
+            "Content-Length": str(chunk_size)})
+            
+    return StreamingResponse(open(decoded_path, "rb"), media_type=mime_type)
 
 @app.get("/search-movie")
 async def search_movie(query: str):
