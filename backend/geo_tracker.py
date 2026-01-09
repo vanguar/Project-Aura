@@ -12,17 +12,15 @@ INTERVAL = 600 # 10 минут
 
 def get_location():
     try:
-        # Получение GPS данных через Termux API
+        # Убираем -p gps, чтобы ловило везде (даже в подвале)
         result = subprocess.run(
-            ["termux-location", "-p", "gps"],
-            capture_output=True,
-            text=True,
-            timeout=30
+            ["termux-location", "-p", "network"], 
+            capture_output=True, text=True, timeout=20
         )
         if result.returncode == 0:
             return json.loads(result.stdout)
     except Exception as e:
-        print(f"Ошибка получения локации: {e}")
+        print(f"Ошибка GPS: {e}")
     return None
 
 def send_to_telegram(message):

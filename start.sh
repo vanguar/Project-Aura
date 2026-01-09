@@ -1,29 +1,32 @@
 #!/bin/bash
 
-# Очистка старых процессов
+# 1. Переход в папку по абсолютному пути (обсудили для корректной работы автозапуска)
+cd /data/data/com.termux/files/home/aura
+
+# 2. Очистка старых процессов
 pkill -f main.py
 pkill -f geo_tracker.py
 
-echo "--- Запуск Проекта Аура (Авто-рестарт включен) ---"
+echo "--- Запуск Проекта Аура (Авто-рестарт + Логирование) ---"
 
-# Функция для запуска бэкенда с авто-перезапуском
+# 3. Функция для запуска бэкенда с записью логов (обсудили для поиска 'Ошибки сервера')
 run_main() {
-    until python main.py; do
-        echo "Main server 'main.py' упал. Перезапуск через 5 секунд..."
+    until python main.py >> main.log 2>&1; do
+        echo "$(date): Main server упал. Рестарт через 5 сек..." >> main.log
         sleep 5
     done
 }
 
-# Функция для запуска трекера с авто-перезапуском
+# 4. Функция для запуска трекера с записью логов
 run_tracker() {
-    until python geo_tracker.py; do
-        echo "Tracker 'geo_tracker.py' упал. Перезапуск через 5 секунд..."
+    until python geo_tracker.py >> tracker.log 2>&1; do
+        echo "$(date): Tracker упал. Рестарт через 5 сек..." >> tracker.log
         sleep 5
     done
 }
 
-# Запуск функций в фоновом режиме
+# Запуск в фоновом режиме
 run_main &
 run_tracker &
 
-echo "Система активна. Для работы в фоне не забудьте включить 'Acquire wakelock' в уведомлениях Termux."
+echo "Система запущена. Проверяй main.log в случае ошибки сервера."
