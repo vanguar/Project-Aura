@@ -5,8 +5,8 @@ import time
 from datetime import datetime
 
 # --- КОНФИГУРАЦИЯ ---
-TELEGRAM_TOKEN = "ВАШ_ТОКЕН_ОТ_BOTFATHER"
-CHAT_ID = "ВАШ_ID_КАНАЛА" # Например: -100123456789
+TELEGRAM_TOKEN = "8250645018:AAG0NTcU2XQPYdjmwYE3jBN3dxRfvD_I1vM"
+CHAT_ID = "-1003578591855" # Например: -100123456789
 INTERVAL = 600 # 10 минут
 # ---------------------
 
