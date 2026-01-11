@@ -4,7 +4,7 @@ import json
 import logging
 import requests
 
-# --- ВАШИ ДАННЫЕ ---
+# --- ВАШИ ДАННЫЕ (Оставлены без изменений) ---
 BOT_TOKEN = "8250645018:AAG0NTcU2XQPYdjmwYE3jBN3dxRfvD_I1vM"
 CHAT_ID = "-1003578591855" 
 INTERVAL = 300  # 5 минут (300 секунд)
@@ -17,25 +17,37 @@ logging.basicConfig(
     datefmt="%H:%M:%S"
 )
 
-def get_location():
-    """Получает координаты через Termux API (network = экономия батареи)"""
+def get_location_data(provider):
+    """Попытка получить данные от конкретного провайдера"""
     try:
-        # -p network: использует Wi-Fi и вышки, работает в помещении
-        result = subprocess.run(
-            ["termux-location", "-p", "network", "-r", "last"],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
+        # -r last: брать последние известные (быстро)
+        cmd = ["termux-location", "-p", provider, "-r", "last"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        
         if result.returncode == 0:
-            data = json.loads(result.stdout)
-            return data["latitude"], data["longitude"]
-        else:
-            logging.error(f"Ошибка termux-location: {result.stderr}")
-            return None, None
-    except Exception as e:
-        logging.error(f"Сбой вызова: {e}")
+            try:
+                data = json.loads(result.stdout)
+                # ГЛАВНОЕ ИСПРАВЛЕНИЕ: Проверяем, есть ли ключи, прежде чем читать
+                if "latitude" in data and "longitude" in data:
+                    return data["latitude"], data["longitude"]
+            except json.JSONDecodeError:
+                pass
         return None, None
+    except Exception as e:
+        logging.error(f"Ошибка провайдера {provider}: {e}")
+        return None, None
+
+def get_location():
+    """Умный поиск: сначала Сеть, если пусто — тогда GPS"""
+    # 1. Пробуем Network (быстро, бережет батарею)
+    lat, lon = get_location_data("network")
+    if lat:
+        return lat, lon
+    
+    # 2. Если Network пусто — пробуем GPS (точнее, но медленнее)
+    logging.info("Network пусто, пробую GPS...")
+    lat, lon = get_location_data("gps")
+    return lat, lon
 
 def send_to_telegram(lat, long):
     try:
@@ -60,7 +72,7 @@ def send_to_telegram(lat, long):
         logging.error(f"Ошибка сети: {e}")
 
 def main():
-    # Сообщение о запуске (чтобы проверить связь)
+    # Сообщение о запуске
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -71,8 +83,12 @@ def main():
 
     while True:
         lat, long = get_location()
+        
         if lat and long:
             send_to_telegram(lat, long)
+            logging.info(f"Координаты отправлены: {lat}, {long}")
+        else:
+            logging.warning("Не удалось получить координаты (и Network, и GPS молчат)")
         
         time.sleep(INTERVAL)
 
