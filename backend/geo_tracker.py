@@ -27,33 +27,37 @@ def get_location_data(provider):
         if result.returncode == 0:
             try:
                 data = json.loads(result.stdout)
-                # ГЛАВНОЕ ИСПРАВЛЕНИЕ: Проверяем, есть ли ключи, прежде чем читать
                 if "latitude" in data and "longitude" in data:
-                    return data["latitude"], data["longitude"]
+                    return data["latitude"], data["longitude"], None
             except json.JSONDecodeError:
-                pass
-        return None, None
+                return None, None, "Ошибка формата данных"
+        
+        # Если команда вернула ошибку (например, доступ запрещен)
+        error_msg = result.stderr.strip() if result.stderr else "Нет сигнала"
+        return None, None, error_msg
+
     except Exception as e:
         logging.error(f"Ошибка провайдера {provider}: {e}")
-        return None, None
+        return None, None, str(e)
 
 def get_location():
     """Умный поиск: сначала Сеть, если пусто — тогда GPS"""
-    # 1. Пробуем Network (быстро, бережет батарею)
-    lat, lon = get_location_data("network")
+    # 1. Пробуем Network
+    lat, lon, err_net = get_location_data("network")
     if lat:
-        return lat, lon
+        return lat, lon, None
     
-    # 2. Если Network пусто — пробуем GPS (точнее, но медленнее)
+    # 2. Если Network пусто — пробуем GPS
     logging.info("Network пусто, пробую GPS...")
-    lat, lon = get_location_data("gps")
-    return lat, lon
+    lat, lon, err_gps = get_location_data("gps")
+    
+    # Собираем ошибку, если оба провайдера молчат
+    final_error = f"Network: {err_net} | GPS: {err_gps}"
+    return lat, lon, final_error
 
 def send_to_telegram(lat, long):
     try:
-        # Ссылка сразу открывает точку на карте
         maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{long}"
-        
         message = f"📍 <b>Геолокация Aura</b>\n{maps_link}"
         
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -63,13 +67,18 @@ def send_to_telegram(lat, long):
             "parse_mode": "HTML",
             "disable_web_page_preview": False
         }
-        
-        resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code != 200:
-            logging.error(f"Ошибка Telegram: {resp.text}")
-            
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
         logging.error(f"Ошибка сети: {e}")
+
+def send_error_to_tg(error_text):
+    """Отправка текста ошибки прямо в канал"""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": CHAT_ID, "text": f"⚠️ <b>Ошибка GPS:</b> {error_text}", "parse_mode": "HTML"}
+        requests.post(url, json=payload, timeout=10)
+    except:
+        pass
 
 def main():
     # Сообщение о запуске
@@ -82,13 +91,15 @@ def main():
         pass
 
     while True:
-        lat, long = get_location()
+        lat, long, error = get_location()
         
         if lat and long:
             send_to_telegram(lat, long)
             logging.info(f"Координаты отправлены: {lat}, {long}")
         else:
-            logging.warning("Не удалось получить координаты (и Network, и GPS молчат)")
+            logging.warning(f"Сбой: {error}")
+            # ОТПРАВКА ОШИБКИ В ТГ (то, что мы обсуждали)
+            send_error_to_tg(error)
         
         time.sleep(INTERVAL)
 

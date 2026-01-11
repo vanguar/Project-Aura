@@ -1,14 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/sh
 termux-wake-lock
-sleep 30
+sleep 15
 
 # Переменные окружения
 export LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib
 export PATH=/data/data/com.termux/files/usr/bin:$PATH
 cd /data/data/com.termux/files/home/backend
 
-# === НОВАЯ ЧАСТЬ: Очистка зависших процессов ===
-# Убиваем старые копии, если они остались после сбоя или перезагрузки
+# ЖЕСТКАЯ ОЧИСТКА: убиваем старые процессы и освобождаем порт 8000
 pkill -f python
 sleep 2
 
