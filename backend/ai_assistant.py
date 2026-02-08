@@ -268,7 +268,7 @@ class AuraAssistant:
     # --- Gemini API ---
     def _call_gemini(self, system_prompt: str, messages: list) -> str:
         """Виклик Gemini API"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
         # Формуємо тіло запиту
         contents = []

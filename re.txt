@@ -87,6 +87,10 @@ Termux:Boot (чтобы сервер включался сам при перез
 wget -O main.py https://raw.githubusercontent.com/vanguar/Project-Aura/refs/heads/main/backend/main.py
 
 
+Посмотреть лог в Термукс
+cat boot_log.txt | tail -30
+
+
 
 Мой бот
 
