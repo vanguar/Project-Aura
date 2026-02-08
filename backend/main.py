@@ -12,6 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from thefuzz import fuzz
 from transliterate import translit
+from pydantic import BaseModel
+
+# === ІМПОРТ AI-ПОМІЧНИКА ===
+from ai_assistant import assistant as ai_bot
 
 # === НАЛАШТУВАННЯ ЛОГІВ ===
 logging.basicConfig(
@@ -70,13 +74,11 @@ def check_meds_worker():
     while True:
         now_ts = time.time()
         
-        # Тестовий запуск системи
         if test_active and now_ts >= test_trigger_time:
             subprocess.run(['termux-notification', '--title', 'ТЕСТ АУРА', '--content', 'Система справна.'])
             subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '1.0', 'ПеревІрка успішна. Аура працює нормально.'])
             test_active = False
         
-        # Моніторинг ліків
         if reminders_enabled:
             current_hm = datetime.now().strftime("%H:%M")
             for item in MEDS_TIMETABLE:
@@ -85,13 +87,16 @@ def check_meds_worker():
                     subprocess.run(['termux-notification', '--title', 'ПРИЙОМ ЛІКІВ', '--content', item['msg']])
                     voice_text = f"Мамо, час приймати ліки. {item['msg']}"
                     subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '0.8', voice_text])
-                    time.sleep(61) # Щоб не спрацювало кілька разів на хвилину
+                    time.sleep(61)
         
         time.sleep(1)
 
 threading.Thread(target=check_meds_worker, daemon=True).start()
 
-# --- ЕНДПОЇНТИ КЕРУВАННЯ ---
+# ============================================================
+# ЕНДПОЇНТИ ЛІКІВ (існуючі)
+# ============================================================
+
 @app.get("/get-meds-schedule")
 async def get_meds_schedule():
     return {"schedule": MEDS_TEXT_SCHEDULE, "enabled": reminders_enabled}
@@ -111,7 +116,62 @@ async def disable_reminders():
     test_active = False
     return {"status": "disabled"}
 
-# --- ЛОГІКА ПОШУКУ ТА СТРІМІНГУ ---
+# ============================================================
+# ЕНДПОЇНТИ AI-ПОМІЧНИКА (нові)
+# ============================================================
+
+class ChatMessage(BaseModel):
+    message: str
+
+@app.post("/ai-chat")
+async def ai_chat(body: ChatMessage):
+    """Основний ендпоїнт чату з AI"""
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="Порожнє повідомлення")
+    
+    result = ai_bot.chat(body.message)
+    
+    # Озвучення відповіді через TTS
+    try:
+        lang = "de-DE" if ai_bot.mode == "doctor" else "uk-UA"
+        # Обмежуємо довжину для TTS (щоб не було занадто довго)
+        tts_text = result["reply"][:500]
+        subprocess.Popen(
+            ['termux-tts-speak', '-l', lang, '-r', '0.85', tts_text],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+    except Exception as e:
+        logger.warning(f"TTS помилка: {e}")
+    
+    return result
+
+@app.post("/ai-chat/doctor-mode")
+async def ai_doctor_mode():
+    """Переключити на режим лікаря (німецька)"""
+    ai_bot.set_doctor_mode()
+    return {"status": "doctor_mode", "message": "Arztmodus aktiviert. Ich kann jetzt medizinische Informationen auf Deutsch bereitstellen."}
+
+@app.post("/ai-chat/normal-mode")
+async def ai_normal_mode():
+    """Повернути звичайний режим (українська)"""
+    ai_bot.set_normal_mode()
+    return {"status": "normal_mode", "message": "Звичайний режим увімкнено."}
+
+@app.get("/ai-chat/history")
+async def ai_chat_history():
+    """Отримати історію діалогу"""
+    return ai_bot.get_history()
+
+@app.post("/ai-chat/clear")
+async def ai_chat_clear():
+    """Очистити історію діалогу"""
+    ai_bot.clear_history()
+    return {"status": "cleared"}
+
+# ============================================================
+# ЛОГІКА ПОШУКУ ТА СТРІМІНГУ ВІДЕО (існуюча)
+# ============================================================
+
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm'}
 
 def get_search_roots():
@@ -130,16 +190,11 @@ def get_search_roots():
 
 def open_file_http(file_path):
     try:
-        # Примусово закриваємо VLC, щоб очистити пам'ять та кеш кодеків
         subprocess.run(['am', 'force-stop', 'org.videolan.vlc'], stderr=subprocess.DEVNULL)
         time.sleep(0.5)
-
         encoded_path = urllib.parse.quote(file_path)
-        # Додаємо унікальну мітку часу до URL для обходу кешування плеєра
         ts = int(time.time())
         stream_url = f"http://127.0.0.1:8000/video-stream?path={encoded_path}&t={ts}"
-        
-        # Запуск через termux-open (без --choose для миттєвого старту)
         subprocess.run(['termux-open', stream_url, '--content-type', 'video/*'])
         return True
     except Exception as e:
@@ -167,7 +222,6 @@ async def video_stream(path: str, request: Request):
     decoded_path = urllib.parse.unquote(path)
     if not os.path.exists(decoded_path): raise HTTPException(status_code=404)
     
-    # Визначаємо MIME-тип автоматично (.mkv не буде відкриватися як .mp4)
     mime_type, _ = mimetypes.guess_type(decoded_path)
     mime_type = mime_type or "video/mp4"
     
@@ -185,7 +239,6 @@ async def video_stream(path: str, request: Request):
                 f.seek(start)
                 remaining = chunk_size
                 while remaining > 0:
-                    # Збільшений буфер 1МБ для стабільності на важких файлах
                     data = f.read(min(1048576, remaining))
                     if not data: break
                     yield data
@@ -215,17 +268,14 @@ async def search_movie(query: str):
     best_match, highest_score = None, 0
     
     for video in videos:
-        # Очищуємо ім'я файлу від розширення для порівняння
         file_display_name = os.path.splitext(video["name"])[0]
         
         for var in variants:
-            # WRatio найкраще підходить для довгих назв з роками та режисерами
             score = fuzz.WRatio(var, file_display_name)
             if score > highest_score:
                 highest_score = score
                 best_match = video
                 
-    # Поріг 60% для стабільної роботи при нечіткій дикції
     if best_match and highest_score >= 60:
         logger.info(f"🎯 Фільм знайдено ({highest_score}%): {best_match['name']}")
         success = open_file_http(best_match['path'])
@@ -236,9 +286,8 @@ async def search_movie(query: str):
 
 @app.get("/")
 async def root():
-    return {"status": "ONLINE", "project": "AURA"}
+    return {"status": "ONLINE", "project": "AURA", "ai_mode": ai_bot.mode}
 
 if __name__ == "__main__":
     import uvicorn
-    # Запуск сервера на смартфоні
     uvicorn.run(app, host="0.0.0.0", port=8000, workers=1)

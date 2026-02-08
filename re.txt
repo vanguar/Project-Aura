@@ -82,6 +82,10 @@ Termux:Boot (чтобы сервер включался сам при перез
 
 Сохрани и выходи: Ctrl + O, Enter, Ctrl + X.
 
+Команда деплоя из ГитХаб
+
+wget -O main.py https://raw.githubusercontent.com/vanguar/Project-Aura/refs/heads/main/backend/main.py
+
 
 
 Мой бот
@@ -93,3 +97,26 @@ Use this token to access the HTTP API:
 Keep your token secure and store it safely, it can be used by anyone to control your bot.
 
 For a description of the Bot API, see this page: https://core.telegram.org/bots/api
+
+
+
+Project details
+Name
+AURA
+Project name
+projects/799885933616
+Project number
+799885933616
+Project id
+gen-lang-client-0166471830
+
+
+API key details
+API Key
+AIzaSyBj9ypgLkONgOsACD8TEtfsQ2OLACSgFUs
+Name
+Gemini API Key
+Project name
+projects/799885933616
+Project number
+799885933616

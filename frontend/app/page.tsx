@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff } from 'lucide-react';
+import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff, Bot, Stethoscope, Mic, MicOff, Trash2, Send } from 'lucide-react';
 
 export default function AuraHome() {
-  const [view, setView] = useState<'home' | 'meds'>('home');
+  const [view, setView] = useState<'home' | 'meds' | 'ai'>('home');
   const [isListening, setIsListening] = useState(false);
   const [activeMode, setActiveMode] = useState<'movie' | 'youtube' | null>(null);
   const [statusText, setStatusText] = useState("AURA готова");
@@ -13,17 +13,26 @@ export default function AuraHome() {
   const [medsSchedule, setMedsSchedule] = useState("");
   const [remindersActive, setRemindersActive] = useState(false);
 
-  // Використовуємо ref для доступу до об'єкта розпізнавання, щоб зупиняти його при переході
+  // AI Chat state
+  const [aiMessages, setAiMessages] = useState<Array<{role: string, content: string}>>([]);
+  const [aiMode, setAiMode] = useState<'normal' | 'doctor'>('normal');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiListening, setAiListening] = useState(false);
+  const [textInput, setTextInput] = useState("");
+
   const recognitionRef = useRef<any>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedIp = localStorage.getItem('aura_server_ip');
     if (savedIp) setServerIp(savedIp);
-
-    return () => {
-      if (recognitionRef.current) recognitionRef.current.stop();
-    };
+    return () => { if (recognitionRef.current) recognitionRef.current.stop(); };
   }, []);
+
+  // Автоскрол чату
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [aiMessages, aiLoading]);
 
   const saveIp = () => {
     const ip = prompt("Введіть IP Termux (наприклад, 192.168.1.5):", serverIp);
@@ -45,31 +54,26 @@ export default function AuraHome() {
     }
   };
 
-  // БЕЗПЕЧНИЙ ПЕРЕХІД НАЗАД (виправляє помилку Client-side exception)
   const handleBack = () => {
     if (recognitionRef.current) {
-      recognitionRef.current.onend = null; // Вимикаємо обробник, щоб не було крашу
+      recognitionRef.current.onend = null;
       recognitionRef.current.abort();
     }
     setIsListening(false);
+    setAiListening(false);
     setView('home');
   };
 
   const startVoice = (mode: 'movie' | 'youtube') => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
-
     if (recognitionRef.current) recognitionRef.current.stop();
 
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = 'uk-UA';
 
-    recognition.onstart = () => {
-      setIsListening(true);
-      setActiveMode(mode);
-      setHeardText("");
-    };
+    recognition.onstart = () => { setIsListening(true); setActiveMode(mode); setHeardText(""); };
 
     recognition.onresult = async (event: any) => {
       const text = event.results[0][0].transcript;
@@ -82,23 +86,245 @@ export default function AuraHome() {
           const res = await fetch(`http://${serverIp}:8000/search-movie?query=${encodeURIComponent(q)}`);
           const data = await res.json();
           setStatusText(data.found ? `✅ Грає: ${data.filename}` : "❌ Не знайдено");
-        } catch (err) {
-          setStatusText("❌ Помилка сервера");
-        }
+        } catch (err) { setStatusText("❌ Помилка сервера"); }
       } else {
         window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`, "_blank");
       }
       setIsListening(false);
     };
 
-    recognition.onend = () => {
-      setIsListening(false);
-      setActiveMode(null);
-    };
-
+    recognition.onend = () => { setIsListening(false); setActiveMode(null); };
     recognition.start();
   };
 
+  // ============================================================
+  // AI CHAT FUNCTIONS
+  // ============================================================
+
+  const openAiChat = async () => {
+    // Завантажити історію
+    try {
+      const res = await fetch(`http://${serverIp}:8000/ai-chat/history`);
+      const data = await res.json();
+      setAiMode(data.mode);
+      setAiMessages(data.messages.map((m: any) => ({
+        role: m.role === 'model' ? 'assistant' : 'user',
+        content: m.content
+      })));
+    } catch (e) {
+      setAiMessages([]);
+    }
+    setView('ai');
+  };
+
+  const sendAiMessage = async (text: string) => {
+    if (!text.trim() || aiLoading) return;
+
+    const userMsg = text.trim();
+    setTextInput("");
+    setAiMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setAiLoading(true);
+
+    try {
+      const res = await fetch(`http://${serverIp}:8000/ai-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg })
+      });
+      const data = await res.json();
+      setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+      if (data.notified) {
+        // Коротке сповіщення що сина повідомлено
+        setAiMessages(prev => [...prev, { role: 'system', content: '📨 Синові надіслано повідомлення' }]);
+      }
+    } catch (e) {
+      setAiMessages(prev => [...prev, { role: 'assistant', content: '❌ Помилка зв\'язку з сервером' }]);
+    }
+    setAiLoading(false);
+  };
+
+  const startAiVoice = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) { alert("Браузер не підтримує розпізнавання мови"); return; }
+    if (recognitionRef.current) recognitionRef.current.stop();
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.lang = aiMode === 'doctor' ? 'de-DE' : 'uk-UA';
+    recognition.continuous = false;
+
+    recognition.onstart = () => setAiListening(true);
+
+    recognition.onresult = (event: any) => {
+      const text = event.results[0][0].transcript;
+      sendAiMessage(text);
+      setAiListening(false);
+    };
+
+    recognition.onerror = () => setAiListening(false);
+    recognition.onend = () => setAiListening(false);
+    recognition.start();
+  };
+
+  const toggleDoctorMode = async () => {
+    try {
+      if (aiMode === 'normal') {
+        const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, { method: 'POST' });
+        const data = await res.json();
+        setAiMode('doctor');
+        setAiMessages([{ role: 'assistant', content: data.message }]);
+      } else {
+        const res = await fetch(`http://${serverIp}:8000/ai-chat/normal-mode`, { method: 'POST' });
+        const data = await res.json();
+        setAiMode('normal');
+        setAiMessages([{ role: 'assistant', content: data.message }]);
+      }
+    } catch (e) {
+      alert("Помилка зв'язку з сервером");
+    }
+  };
+
+  const clearAiHistory = async () => {
+    try {
+      await fetch(`http://${serverIp}:8000/ai-chat/clear`, { method: 'POST' });
+      setAiMessages([]);
+      setAiMode('normal');
+    } catch (e) {
+      alert("Помилка очищення");
+    }
+  };
+
+  // ============================================================
+  // AI CHAT VIEW
+  // ============================================================
+  if (view === 'ai') {
+    return (
+      <main className="h-screen w-full bg-slate-950 text-white flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className={`flex items-center justify-between px-3 py-2 ${
+          aiMode === 'doctor' ? 'bg-emerald-800' : 'bg-indigo-900'
+        }`}>
+          <button onClick={handleBack} className="p-2">
+            <ArrowLeft size={28} />
+          </button>
+          <div className="text-center flex-1">
+            <h2 className="text-xl font-black uppercase tracking-wide">
+              {aiMode === 'doctor' ? '🩺 РЕЖИМ ЛІКАРЯ' : '🤖 AI-ПОМІЧНИК'}
+            </h2>
+            <p className="text-xs opacity-70">
+              {aiMode === 'doctor' ? 'Deutsch · Medizinischer Modus' : 'Українська · Галина Іванівна'}
+            </p>
+          </div>
+          <button onClick={clearAiHistory} className="p-2 opacity-60">
+            <Trash2 size={22} />
+          </button>
+        </div>
+
+        {/* Doctor mode toggle */}
+        <button
+          onClick={toggleDoctorMode}
+          className={`mx-2 mt-2 py-3 rounded-2xl border-4 flex items-center justify-center gap-3 text-lg font-black uppercase active:scale-95 ${
+            aiMode === 'doctor'
+              ? 'bg-amber-600 border-amber-400 text-white'
+              : 'bg-emerald-700 border-emerald-500 text-white'
+          }`}
+        >
+          <Stethoscope size={28} />
+          {aiMode === 'doctor' ? 'ВИМКНУТИ РЕЖИМ ЛІКАРЯ' : 'УВІМКНУТИ РЕЖИМ ЛІКАРЯ 🇩🇪'}
+        </button>
+
+        {/* Chat messages */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {aiMessages.length === 0 && (
+            <div className="text-center text-slate-500 mt-10">
+              <Bot size={64} className="mx-auto mb-4 opacity-30" />
+              <p className="text-xl font-bold">
+                {aiMode === 'doctor' ? 'Sprechen Sie mit mir' : 'Натисніть 🎙️ щоб почати розмову'}
+              </p>
+              <p className="text-sm mt-2 opacity-50">
+                {aiMode === 'doctor' ? 'Ich kenne die vollständige Krankengeschichte' : 'Я знаю всю медичну історію та допоможу'}
+              </p>
+            </div>
+          )}
+
+          {aiMessages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {msg.role === 'system' ? (
+                <div className="bg-yellow-900/40 text-yellow-300 text-sm px-4 py-2 rounded-xl text-center w-full">
+                  {msg.content}
+                </div>
+              ) : (
+                <div className={`max-w-[85%] px-4 py-3 rounded-3xl text-lg leading-relaxed ${
+                  msg.role === 'user'
+                    ? 'bg-blue-600 text-white rounded-br-lg'
+                    : 'bg-slate-800 text-slate-100 rounded-bl-lg border border-slate-700'
+                }`}>
+                  {msg.content}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {aiLoading && (
+            <div className="flex justify-start">
+              <div className="bg-slate-800 px-6 py-4 rounded-3xl rounded-bl-lg border border-slate-700">
+                <div className="flex gap-1.5">
+                  <span className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
+                  <span className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
+                  <span className="w-3 h-3 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Input area */}
+        <div className="p-2 bg-slate-900 border-t border-slate-800">
+          {/* Text input row */}
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') sendAiMessage(textInput); }}
+              placeholder={aiMode === 'doctor' ? 'Nachricht eingeben...' : 'Написати повідомлення...'}
+              className="flex-1 bg-slate-800 text-white text-lg px-4 py-3 rounded-2xl border border-slate-700 outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={() => sendAiMessage(textInput)}
+              disabled={!textInput.trim() || aiLoading}
+              className="bg-blue-600 p-3 rounded-2xl active:scale-95 disabled:opacity-30"
+            >
+              <Send size={24} />
+            </button>
+          </div>
+
+          {/* Voice button */}
+          <button
+            onClick={startAiVoice}
+            disabled={aiLoading}
+            className={`w-full py-4 rounded-2xl border-4 flex items-center justify-center gap-3 text-2xl font-black uppercase active:scale-95 ${
+              aiListening
+                ? 'bg-red-600 border-red-400 animate-pulse'
+                : 'bg-blue-600 border-blue-400'
+            }`}
+          >
+            {aiListening ? <MicOff size={32} /> : <Mic size={32} />}
+            {aiListening 
+              ? (aiMode === 'doctor' ? 'HÖRE ZU...' : 'СЛУХАЮ...')
+              : (aiMode === 'doctor' ? 'SPRECHEN' : 'ГОВОРИТИ 🎙️')
+            }
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // ============================================================
+  // MEDS VIEW (існуючий)
+  // ============================================================
   if (view === 'meds') {
     return (
       <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden">
@@ -146,10 +372,12 @@ export default function AuraHome() {
     );
   }
 
+  // ============================================================
+  // HOME VIEW (оновлений з кнопкою AI)
+  // ============================================================
   return (
     <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden font-sans">
       <div className="h-[10vh] flex justify-between items-center px-4 bg-slate-900 rounded-3xl border border-slate-800 shadow-lg">
-        {/* ВИПРАВЛЕНО: чиста назва без дужок */}
         <h1 className="text-3xl font-black text-blue-500 tracking-tighter uppercase">AURA</h1>
         <button onClick={saveIp} className="p-3 bg-slate-800 rounded-full border border-slate-700 active:bg-slate-700">
           <Settings size={28} />
@@ -168,15 +396,25 @@ export default function AuraHome() {
             isListening && activeMode === 'movie' ? 'bg-green-600 border-green-400 animate-pulse' : 'bg-blue-600 border-blue-500'
           }`}
         >
-          <Film size={80} /><span className="text-4xl font-black mt-2 uppercase tracking-widest">ФІЛЬМИ</span>
+          <Film size={64} /><span className="text-3xl font-black mt-2 uppercase tracking-widest">ФІЛЬМИ</span>
         </button>
 
-        <button 
-          onClick={openMeds} 
-          className="flex-[2] bg-red-600 rounded-[40px] border-8 border-red-400 flex flex-col items-center justify-center active:scale-95 shadow-2xl"
-        >
-          <Heart size={80} fill="white" /><span className="text-4xl font-black mt-2 uppercase tracking-widest">ЛІКИ</span>
-        </button>
+        <div className="flex-[2] flex gap-2">
+          <button 
+            onClick={openMeds} 
+            className="flex-1 bg-red-600 rounded-[40px] border-8 border-red-400 flex flex-col items-center justify-center active:scale-95 shadow-2xl"
+          >
+            <Heart size={56} fill="white" /><span className="text-2xl font-black mt-1 uppercase tracking-widest">ЛІКИ</span>
+          </button>
+
+          <button 
+            onClick={openAiChat} 
+            className="flex-1 bg-purple-600 rounded-[40px] border-8 border-purple-400 flex flex-col items-center justify-center active:scale-95 shadow-2xl"
+          >
+            <Bot size={56} /><span className="text-2xl font-black mt-1 uppercase tracking-wide">AI</span>
+            <span className="text-xs font-bold opacity-70 uppercase">помічник</span>
+          </button>
+        </div>
 
         <button 
           onClick={() => startVoice('youtube')}
