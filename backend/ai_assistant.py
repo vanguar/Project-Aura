@@ -1,6 +1,6 @@
 """
 AURA AI Assistant — модуль AI-помічника для мами
-Gemini API + медичний контекст + Telegram-сповіщення
+OpenAI API + медичний контекст + Telegram-сповіщення
 + Зв'язка між режимами (мама ↔ лікар)
 """
 
@@ -16,9 +16,12 @@ logger = logging.getLogger("AURA_AI")
 # ============================================================
 # КОНФІДЕНЦІЙНІ ДАНІ
 # ============================================================
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY_HERE")
 BOT_TOKEN = os.environ.get("AURA_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 SON_CHAT_ID = os.environ.get("AURA_SON_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
+
+# Модель OpenAI
+OPENAI_MODEL = "gpt-4o-mini"
 
 # Шлях до файлу історії діалогу
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat_history.json")
@@ -271,13 +274,15 @@ class AuraAssistant:
             lines.append(f"{role}: {msg['content']}")
         return "\n".join(lines)
 
-    # --- Генерація резюме через Gemini ---
-    def _generate_summary(self, prompt: str, dialog_text: str) -> str:
-        """Створити резюме діалогу через Gemini"""
+    # --- Генерація резюме через OpenAI ---
+    def _generate_summary(self, prompt, dialog_text):
+        """Створити резюме діалогу через OpenAI"""
         try:
-            full_prompt = prompt + "\n\n" + dialog_text
-            messages = [{"role": "user", "parts": [{"text": full_prompt}]}]
-            result = self._call_gemini("Ти — AI-система AURA. Виконай запит точно і коротко.", messages)
+            messages = [
+                {"role": "system", "content": "Ти — AI-система AURA. Виконай запит точно і коротко."},
+                {"role": "user", "content": prompt + "\n\n" + dialog_text}
+            ]
+            result = self._call_openai("Ти — AI-система AURA. Виконай запит точно і коротко.", messages)
             return result.strip()
         except Exception as e:
             logger.error(f"❌ Помилка генерації резюме: {e}")
@@ -375,7 +380,7 @@ class AuraAssistant:
             self._send_telegram("✅ Візит лікаря завершено. Не вдалося згенерувати детальний звіт.")
 
     # --- Основний чат ---
-    def chat(self, user_message: str) -> dict:
+    def chat(self, user_message):
         """
         Основна функція чату.
         Повертає: {"reply": str, "notified": bool, "mode": str}
@@ -390,7 +395,6 @@ class AuraAssistant:
         # Вибираємо системний промпт з контекстом іншого режиму
         if self.mode == "doctor":
             system_prompt = SYSTEM_PROMPT_DOCTOR
-            # Додаємо резюме скарг мами
             if self.mama_summary_for_doctor:
                 system_prompt += (
                     f"\n\n=== AKTUELLE BESCHWERDEN DER PATIENTIN (aus dem Gespräch mit ihr) ===\n"
@@ -398,7 +402,6 @@ class AuraAssistant:
                 )
         else:
             system_prompt = SYSTEM_PROMPT_NORMAL
-            # Додаємо рекомендації лікаря
             if self.doctor_summary_for_mama:
                 system_prompt += (
                     f"\n\n=== ОСТАННІ РЕКОМЕНДАЦІЇ ЛІКАРЯ ===\n"
@@ -408,16 +411,20 @@ class AuraAssistant:
                 )
 
         # Формуємо історію для API (останні 20 повідомлень)
-        api_messages = []
+        api_messages = [{"role": "system", "content": system_prompt}]
         recent = self.messages[-20:]
         for msg in recent:
+            role = msg["role"]
+            # OpenAI використовує "assistant" замість "model"
+            if role == "model":
+                role = "assistant"
             api_messages.append({
-                "role": msg["role"],
-                "parts": [{"text": msg["content"]}]
+                "role": role,
+                "content": msg["content"]
             })
 
-        # Виклик Gemini API
-        reply_text = self._call_gemini(system_prompt, api_messages)
+        # Виклик OpenAI API
+        reply_text = self._call_openai(system_prompt, api_messages)
 
         # Перевірка на сповіщення сина
         notified = False
@@ -427,9 +434,9 @@ class AuraAssistant:
         else:
             clean_reply = reply_text
 
-        # Зберігаємо відповідь
+        # Зберігаємо відповідь (використовуємо "assistant" для OpenAI сумісності)
         self.messages.append({
-            "role": "model",
+            "role": "assistant",
             "content": clean_reply,
             "timestamp": datetime.now().isoformat()
         })
@@ -441,59 +448,45 @@ class AuraAssistant:
             "mode": self.mode
         }
 
-    # --- Gemini API ---
-    def _call_gemini(self, system_prompt: str, messages: list) -> str:
-        """Виклик Gemini API"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    # --- OpenAI API ---
+    def _call_openai(self, system_prompt, messages):
+        """Виклик OpenAI API"""
+        url = "https://api.openai.com/v1/chat/completions"
 
-        contents = []
-        for msg in messages:
-            contents.append({
-                "role": msg["role"],
-                "parts": msg["parts"]
-            })
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
 
         body = {
-            "system_instruction": {
-                "parts": [{"text": system_prompt}]
-            },
-            "contents": contents,
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 1024,
-                "topP": 0.9
-            },
-            "safetySettings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-            ]
+            "model": OPENAI_MODEL,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 1024,
+            "top_p": 0.9
         }
 
         try:
-            response = requests.post(url, json=body, timeout=30)
+            response = requests.post(url, headers=headers, json=body, timeout=30)
             response.raise_for_status()
             data = response.json()
 
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "Вибачте, я не змогла сформувати відповідь.")
+            choices = data.get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "Вибачте, я не змогла сформувати відповідь.")
 
-            logger.error(f"Порожня відповідь Gemini: {data}")
+            logger.error(f"Порожня відповідь OpenAI: {data}")
             return "Вибачте, сталася помилка. Спробуйте ще раз."
 
         except requests.exceptions.Timeout:
-            logger.error("⏱️ Таймаут Gemini API")
+            logger.error("⏱️ Таймаут OpenAI API")
             return "Вибачте, відповідь займає занадто довго. Спробуйте ще раз."
         except Exception as e:
-            logger.error(f"❌ Помилка Gemini API: {e}")
+            logger.error(f"❌ Помилка OpenAI API: {e}")
             return "Вибачте, сталася технічна помилка. Спробуйте пізніше."
 
     # --- Telegram ---
-    def _handle_notification(self, reply_text: str, user_message: str) -> bool:
+    def _handle_notification(self, reply_text, user_message):
         """Обробка маркера [NOTIFY_SON]"""
         try:
             marker_pos = reply_text.index("[NOTIFY_SON]")
@@ -519,7 +512,7 @@ class AuraAssistant:
             logger.error(f"❌ Помилка сповіщення: {e}")
             return False
 
-    def _send_telegram(self, text: str):
+    def _send_telegram(self, text):
         """Відправити повідомлення в Telegram"""
         try:
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -533,7 +526,7 @@ class AuraAssistant:
             logger.error(f"❌ Помилка Telegram: {e}")
 
     # --- Управління історією ---
-    def get_history(self) -> dict:
+    def get_history(self):
         """Повернути історію діалогу"""
         return {
             "mode": self.mode,
