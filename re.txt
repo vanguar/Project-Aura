@@ -103,21 +103,9 @@ Keep your token secure and store it safely, it can be used by anyone to control 
 For a description of the Bot API, see this page: https://core.telegram.org/bots/api
 
 
-
-Project details
-Name
-AURA
-Project name
-projects/799885933616
-Project number
-799885933616
-Project id
-gen-lang-client-0166471830
-
-
-API key details
+https://aistudio.google.com/apikey
 API Key
-AIzaSyBj9ypgLkONgOsACD8TEtfsQ2OLACSgFUs
+AIzaSyBpTYpJaveaFn_3Gxa8fA-1l9tyFpM4ums
 Name
 Gemini API Key
 Project name

@@ -1,6 +1,7 @@
 """
 AURA AI Assistant — модуль AI-помічника для мами
 Gemini API + медичний контекст + Telegram-сповіщення
++ Зв'язка між режимами (мама ↔ лікар)
 """
 
 import json
@@ -13,7 +14,7 @@ from datetime import datetime
 logger = logging.getLogger("AURA_AI")
 
 # ============================================================
-# КОНФІДЕНЦІЙНІ ДАНІ — ЗАПОВНІТЬ ПЕРЕД ПЕРШИМ ЗАПУСКОМ
+# КОНФІДЕНЦІЙНІ ДАНІ
 # ============================================================
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE")
 BOT_TOKEN = os.environ.get("AURA_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
@@ -111,6 +112,10 @@ HELIOS: PD Dr. Deborah Janowitz (шефлікар)
 Наступний прийом: 09.06.2026, 14:45
 """
 
+# ============================================================
+# СИСТЕМНІ ПРОМПТИ
+# ============================================================
+
 SYSTEM_PROMPT_NORMAL = f"""Ти — АУРА, персональний AI-помічник Галини Іванівни (мами).
 
 ТВОЯ РОЛЬ:
@@ -156,6 +161,48 @@ PATIENTENAKTE:
 
 WICHTIG: Du ersetzt keinen Arzt. Du bist ein Informationssystem, das dem Arzt hilft, schnell einen Überblick zu bekommen."""
 
+# ============================================================
+# ПРОМПТИ ДЛЯ ГЕНЕРАЦІЇ РЕЗЮМЕ
+# ============================================================
+
+SUMMARIZE_PROMPT_MAMA_TO_DOCTOR = """Проаналізуй діалог з пацієнткою (Галиною Іванівною) і створи КОРОТКЕ РЕЗЮМЕ НА НІМЕЦЬКІЙ для лікаря.
+
+Формат відповіді (тільки це, нічого більше):
+--- ZUSAMMENFASSUNG DES GESPRÄCHS MIT DER PATIENTIN ---
+Aktuelle Beschwerden: [що турбує]
+Beobachtungen: [що помітив AI]
+Stimmung: [емоційний стан]
+---
+
+Ось діалог:
+"""
+
+SUMMARIZE_PROMPT_DOCTOR_TO_MAMA = """Проаналізуй діалог з лікарем (німецькою) і створи ПРОСТЕ ПОЯСНЕННЯ НА УКРАЇНСЬКІЙ для мами (77 років, говорить простою мовою).
+
+Формат відповіді (тільки це, нічого більше):
+Галино Іванівно, лікар щойно вас оглянув. Ось що він сказав:
+[Просте пояснення українською, 3-5 речень максимум]
+
+Ось діалог з лікарем:
+"""
+
+SUMMARIZE_PROMPT_FINAL_REPORT = """Створи СТИСЛИЙ ЗВІТ НА УКРАЇНСЬКІЙ для сина про сеанс з лікарем.
+
+Формат (без зайвого тексту):
+📋 ЗВІТ ПРО ВІЗИТ ЛІКАРЯ
+
+👩 Скарги мами: [коротко що розповіла мама]
+🩺 Питання/коментарі лікаря: [коротко]
+💊 Рекомендації: [якщо були]
+⚠️ Увага: [на що звернути увагу]
+
+Діалог з мамою:
+{mama_dialog}
+
+Діалог з лікарем:
+{doctor_dialog}
+"""
+
 
 # ============================================================
 # КЛАС ПОМІЧНИКА
@@ -164,7 +211,13 @@ WICHTIG: Du ersetzt keinen Arzt. Du bist ein Informationssystem, das dem Arzt hi
 class AuraAssistant:
     def __init__(self):
         self.mode = "normal"  # "normal" або "doctor"
-        self.messages = []
+        self.messages = []  # поточна активна історія
+        # Окремі історії для зв'язки між режимами
+        self.mama_messages = []       # історія розмови з мамою (поточна сесія)
+        self.doctor_messages = []     # історія розмови з лікарем (поточна сесія)
+        self.mama_summary_for_doctor = ""   # резюме мами → лікарю (DE)
+        self.doctor_summary_for_mama = ""   # резюме лікаря → мамі (UA)
+        self.doctor_session_active = False  # чи був активний сеанс лікаря
         self.load_history()
 
     # --- Завантаження та збереження історії ---
@@ -176,6 +229,11 @@ class AuraAssistant:
                     data = json.load(f)
                     self.mode = data.get("mode", "normal")
                     self.messages = data.get("messages", [])
+                    self.mama_messages = data.get("mama_messages", [])
+                    self.doctor_messages = data.get("doctor_messages", [])
+                    self.mama_summary_for_doctor = data.get("mama_summary_for_doctor", "")
+                    self.doctor_summary_for_mama = data.get("doctor_summary_for_mama", "")
+                    self.doctor_session_active = data.get("doctor_session_active", False)
                     logger.info(f"📂 Історію завантажено: {len(self.messages)} повідомлень, режим: {self.mode}")
             else:
                 logger.info("📂 Файл історії не знайдено, починаємо з нуля")
@@ -189,30 +247,132 @@ class AuraAssistant:
             data = {
                 "mode": self.mode,
                 "last_updated": datetime.now().isoformat(),
-                "messages": self.messages
+                "messages": self.messages,
+                "mama_messages": self.mama_messages,
+                "doctor_messages": self.doctor_messages,
+                "mama_summary_for_doctor": self.mama_summary_for_doctor,
+                "doctor_summary_for_mama": self.doctor_summary_for_mama,
+                "doctor_session_active": self.doctor_session_active
             }
             with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"❌ Помилка збереження історії: {e}")
 
+    # --- Форматування діалогу ---
+    def _format_dialog(self, messages, mode="normal"):
+        """Перетворити список повідомлень на текстовий діалог"""
+        lines = []
+        for msg in messages:
+            if mode == "doctor":
+                role = "Arzt" if msg["role"] == "user" else "AURA"
+            else:
+                role = "Мама" if msg["role"] == "user" else "AURA"
+            lines.append(f"{role}: {msg['content']}")
+        return "\n".join(lines)
+
+    # --- Генерація резюме через Gemini ---
+    def _generate_summary(self, prompt: str, dialog_text: str) -> str:
+        """Створити резюме діалогу через Gemini"""
+        try:
+            full_prompt = prompt + "\n\n" + dialog_text
+            messages = [{"role": "user", "parts": [{"text": full_prompt}]}]
+            result = self._call_gemini("Ти — AI-система AURA. Виконай запит точно і коротко.", messages)
+            return result.strip()
+        except Exception as e:
+            logger.error(f"❌ Помилка генерації резюме: {e}")
+            return ""
+
     # --- Режими ---
     def set_doctor_mode(self):
         """Переключити на режим лікаря (німецька мова)"""
+        # Зберігаємо поточну розмову мами
+        if self.mode == "normal" and self.messages:
+            self.mama_messages = list(self.messages)
+
+        # Генеруємо резюме розмови з мамою для лікаря
+        if self.mama_messages:
+            mama_dialog = self._format_dialog(self.mama_messages, mode="normal")
+            self.mama_summary_for_doctor = self._generate_summary(
+                SUMMARIZE_PROMPT_MAMA_TO_DOCTOR, mama_dialog
+            )
+            logger.info(f"📝 Резюме мами для лікаря: {len(self.mama_summary_for_doctor)} символів")
+
         self.mode = "doctor"
-        self.messages = []  # Чистимо історію для нової сесії з лікарем
+        self.messages = []
+        self.doctor_messages = []
+        self.doctor_session_active = True
         self.save_history()
+
         # Сповіщення сина
-        self._send_telegram("⚕️ *ВІЗИТ ЛІКАРЯ*\nЛікар прийшов. AURA переключена в режим лікаря (DE).\nУсі відповіді будуть надсилатися вам.")
+        self._send_telegram(
+            "⚕️ *ВІЗИТ ЛІКАРЯ*\n"
+            "Лікар прийшов. AURA переключена в режим лікаря (DE).\n"
+            "Усі відповіді будуть надсилатися вам."
+        )
         logger.info("🩺 Режим лікаря УВІМКНЕНО")
 
     def set_normal_mode(self):
-        """Повернути звичайний режим (українська)"""
+        """Повернути звичайний режим (українська) + фінальний звіт"""
+        # Зберігаємо розмову лікаря
+        if self.mode == "doctor" and self.messages:
+            self.doctor_messages = list(self.messages)
+
+        # Генеруємо резюме розмови лікаря для мами
+        doctor_summary = ""
+        if self.doctor_messages:
+            doctor_dialog = self._format_dialog(self.doctor_messages, mode="doctor")
+            doctor_summary = self._generate_summary(
+                SUMMARIZE_PROMPT_DOCTOR_TO_MAMA, doctor_dialog
+            )
+            self.doctor_summary_for_mama = doctor_summary
+            logger.info(f"📝 Резюме лікаря для мами: {len(doctor_summary)} символів")
+
+        # === ФІНАЛЬНИЙ ЗВІТ В TELEGRAM ===
+        if self.doctor_session_active and (self.mama_messages or self.doctor_messages):
+            self._send_final_report()
+
         self.mode = "normal"
-        self.messages = []
+        # Відновлюємо розмову з мамою (продовжуємо)
+        self.messages = list(self.mama_messages)
+        self.doctor_session_active = False
         self.save_history()
-        self._send_telegram("✅ Візит лікаря завершено. AURA повернута в звичайний режим.")
+
         logger.info("🏠 Звичайний режим УВІМКНЕНО")
+
+        # Повертаємо резюме лікаря для показу мамі
+        if doctor_summary:
+            return doctor_summary
+        return "Звичайний режим увімкнено."
+
+    def _send_final_report(self):
+        """Відправити фінальний звіт сину в Telegram"""
+        try:
+            mama_dialog = self._format_dialog(self.mama_messages, "normal") if self.mama_messages else "Діалогу не було"
+            doctor_dialog = self._format_dialog(self.doctor_messages, "doctor") if self.doctor_messages else "Діалогу не було"
+
+            report_prompt = SUMMARIZE_PROMPT_FINAL_REPORT.format(
+                mama_dialog=mama_dialog,
+                doctor_dialog=doctor_dialog
+            )
+
+            report = self._generate_summary(report_prompt, "")
+
+            now = datetime.now().strftime("%H:%M %d.%m.%Y")
+            final_message = (
+                f"✅ *ВІЗИТ ЛІКАРЯ ЗАВЕРШЕНО*\n"
+                f"🕐 {now}\n\n"
+                f"{report}\n\n"
+                f"---\n"
+                f"_Повідомлень мами: {len(self.mama_messages)}_\n"
+                f"_Повідомлень лікаря: {len(self.doctor_messages)}_"
+            )
+
+            self._send_telegram(final_message)
+            logger.info("📨 Фінальний звіт відправлено в Telegram")
+        except Exception as e:
+            logger.error(f"❌ Помилка фінального звіту: {e}")
+            self._send_telegram("✅ Візит лікаря завершено. Не вдалося згенерувати детальний звіт.")
 
     # --- Основний чат ---
     def chat(self, user_message: str) -> dict:
@@ -227,10 +387,27 @@ class AuraAssistant:
             "timestamp": datetime.now().isoformat()
         })
 
-        # Вибираємо системний промпт
-        system_prompt = SYSTEM_PROMPT_DOCTOR if self.mode == "doctor" else SYSTEM_PROMPT_NORMAL
+        # Вибираємо системний промпт з контекстом іншого режиму
+        if self.mode == "doctor":
+            system_prompt = SYSTEM_PROMPT_DOCTOR
+            # Додаємо резюме скарг мами
+            if self.mama_summary_for_doctor:
+                system_prompt += (
+                    f"\n\n=== AKTUELLE BESCHWERDEN DER PATIENTIN (aus dem Gespräch mit ihr) ===\n"
+                    f"{self.mama_summary_for_doctor}"
+                )
+        else:
+            system_prompt = SYSTEM_PROMPT_NORMAL
+            # Додаємо рекомендації лікаря
+            if self.doctor_summary_for_mama:
+                system_prompt += (
+                    f"\n\n=== ОСТАННІ РЕКОМЕНДАЦІЇ ЛІКАРЯ ===\n"
+                    f"Лікар нещодавно оглядав маму. Ось що він сказав/рекомендував:\n"
+                    f"{self.doctor_summary_for_mama}\n"
+                    f"Якщо мама запитає що сказав лікар — розкажи простими словами."
+                )
 
-        # Формуємо історію для API (обмежуємо до останніх 20 повідомлень)
+        # Формуємо історію для API (останні 20 повідомлень)
         api_messages = []
         recent = self.messages[-20:]
         for msg in recent:
@@ -246,12 +423,11 @@ class AuraAssistant:
         notified = False
         if "[NOTIFY_SON]" in reply_text:
             notified = self._handle_notification(reply_text, user_message)
-            # Видаляємо маркер з відповіді для мами
             clean_reply = reply_text.split("[NOTIFY_SON]")[0].strip()
         else:
             clean_reply = reply_text
 
-        # Зберігаємо відповідь асистента
+        # Зберігаємо відповідь
         self.messages.append({
             "role": "model",
             "content": clean_reply,
@@ -270,7 +446,6 @@ class AuraAssistant:
         """Виклик Gemini API"""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
-        # Формуємо тіло запиту
         contents = []
         for msg in messages:
             contents.append({
@@ -301,7 +476,6 @@ class AuraAssistant:
             response.raise_for_status()
             data = response.json()
 
-            # Витягуємо текст відповіді
             candidates = data.get("candidates", [])
             if candidates:
                 parts = candidates[0].get("content", {}).get("parts", [])
@@ -316,13 +490,12 @@ class AuraAssistant:
             return "Вибачте, відповідь займає занадто довго. Спробуйте ще раз."
         except Exception as e:
             logger.error(f"❌ Помилка Gemini API: {e}")
-            return f"Вибачте, сталася технічна помилка. Спробуйте пізніше."
+            return "Вибачте, сталася технічна помилка. Спробуйте пізніше."
 
     # --- Telegram ---
     def _handle_notification(self, reply_text: str, user_message: str) -> bool:
-        """Обробка маркера [NOTIFY_SON] та відправка в Telegram"""
+        """Обробка маркера [NOTIFY_SON]"""
         try:
-            # Витягуємо контекст з дужок після маркера
             marker_pos = reply_text.index("[NOTIFY_SON]")
             after_marker = reply_text[marker_pos + len("[NOTIFY_SON]"):]
 
@@ -365,6 +538,9 @@ class AuraAssistant:
         return {
             "mode": self.mode,
             "message_count": len(self.messages),
+            "has_mama_context": len(self.mama_messages) > 0,
+            "has_doctor_context": len(self.doctor_messages) > 0,
+            "doctor_session_active": self.doctor_session_active,
             "messages": [
                 {
                     "role": m["role"],
@@ -376,8 +552,13 @@ class AuraAssistant:
         }
 
     def clear_history(self):
-        """Очистити історію (новий діалог)"""
+        """Очистити всю історію"""
         self.messages = []
+        self.mama_messages = []
+        self.doctor_messages = []
+        self.mama_summary_for_doctor = ""
+        self.doctor_summary_for_mama = ""
+        self.doctor_session_active = False
         self.mode = "normal"
         self.save_history()
         logger.info("🗑️ Історію очищено")

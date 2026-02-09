@@ -19,6 +19,7 @@ export default function AuraHome() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiListening, setAiListening] = useState(false);
   const [textInput, setTextInput] = useState("");
+  const [modeSwitching, setModeSwitching] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -29,7 +30,6 @@ export default function AuraHome() {
     return () => { if (recognitionRef.current) recognitionRef.current.stop(); };
   }, []);
 
-  // Автоскрол чату
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [aiMessages, aiLoading]);
@@ -102,7 +102,6 @@ export default function AuraHome() {
   // ============================================================
 
   const openAiChat = async () => {
-    // Завантажити історію
     try {
       const res = await fetch(`http://${serverIp}:8000/ai-chat/history`);
       const data = await res.json();
@@ -134,7 +133,6 @@ export default function AuraHome() {
       const data = await res.json();
       setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
       if (data.notified) {
-        // Коротке сповіщення що сина повідомлено
         setAiMessages(prev => [...prev, { role: 'system', content: '📨 Синові надіслано повідомлення' }]);
       }
     } catch (e) {
@@ -167,6 +165,7 @@ export default function AuraHome() {
   };
 
   const toggleDoctorMode = async () => {
+    setModeSwitching(true);
     try {
       if (aiMode === 'normal') {
         const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, { method: 'POST' });
@@ -174,14 +173,19 @@ export default function AuraHome() {
         setAiMode('doctor');
         setAiMessages([{ role: 'assistant', content: data.message }]);
       } else {
+        // Повертаємо нормальний режим — сервер генерує резюме лікаря для мами
         const res = await fetch(`http://${serverIp}:8000/ai-chat/normal-mode`, { method: 'POST' });
         const data = await res.json();
         setAiMode('normal');
-        setAiMessages([{ role: 'assistant', content: data.message }]);
+        setAiMessages([
+          { role: 'system', content: '✅ Візит лікаря завершено. Звіт надіслано синові.' },
+          { role: 'assistant', content: data.message }
+        ]);
       }
     } catch (e) {
       alert("Помилка зв'язку з сервером");
     }
+    setModeSwitching(false);
   };
 
   const clearAiHistory = async () => {
@@ -201,36 +205,50 @@ export default function AuraHome() {
     return (
       <main className="h-screen w-full bg-slate-950 text-white flex flex-col overflow-hidden">
         {/* Header */}
-        <div className={`flex items-center justify-between px-3 py-2 ${
-          aiMode === 'doctor' ? 'bg-emerald-800' : 'bg-indigo-900'
-        }`}>
+        <div className="flex items-center justify-between p-3 bg-slate-900 border-b border-slate-800">
           <button onClick={handleBack} className="p-2">
             <ArrowLeft size={28} />
           </button>
-          <div className="text-center flex-1">
-            <h2 className="text-xl font-black uppercase tracking-wide">
-              {aiMode === 'doctor' ? '🩺 РЕЖИМ ЛІКАРЯ' : '🤖 AI-ПОМІЧНИК'}
+          <div className="text-center">
+            <h2 className="text-xl font-black flex items-center gap-2">
+              {aiMode === 'doctor' ? (
+                <><Stethoscope size={24} /> ARZT-MODUS</>
+              ) : (
+                <><Bot size={24} /> AI-ПОМІЧНИК</>
+              )}
             </h2>
-            <p className="text-xs opacity-70">
-              {aiMode === 'doctor' ? 'Deutsch · Medizinischer Modus' : 'Українська · Галина Іванівна'}
+            <p className="text-xs opacity-60">
+              {aiMode === 'doctor' ? 'Deutsch · Medizinisch' : 'Українська · Галина Іванівна'}
             </p>
           </div>
-          <button onClick={clearAiHistory} className="p-2 opacity-60">
-            <Trash2 size={22} />
+          <button onClick={clearAiHistory} className="p-2">
+            <Trash2 size={24} />
           </button>
         </div>
 
         {/* Doctor mode toggle */}
         <button
           onClick={toggleDoctorMode}
-          className={`mx-2 mt-2 py-3 rounded-2xl border-4 flex items-center justify-center gap-3 text-lg font-black uppercase active:scale-95 ${
+          disabled={modeSwitching}
+          className={`mx-3 mt-2 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-lg font-black active:scale-95 ${
+            modeSwitching ? 'opacity-50' : ''
+          } ${
             aiMode === 'doctor'
-              ? 'bg-amber-600 border-amber-400 text-white'
-              : 'bg-emerald-700 border-emerald-500 text-white'
+              ? 'bg-green-700 border-green-500 text-white'
+              : 'bg-green-600 border-green-400 text-white'
           }`}
         >
-          <Stethoscope size={28} />
-          {aiMode === 'doctor' ? 'ВИМКНУТИ РЕЖИМ ЛІКАРЯ' : 'УВІМКНУТИ РЕЖИМ ЛІКАРЯ 🇩🇪'}
+          {modeSwitching ? (
+            <div className="flex gap-1.5">
+              <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
+              <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
+              <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+            </div>
+          ) : aiMode === 'doctor' ? (
+            <><ArrowLeft size={20} /> ПОВЕРНУТИ РЕЖИМ МАМИ 🇺🇦</>
+          ) : (
+            <><Stethoscope size={20} /> УВІМКНУТИ РЕЖИМ ЛІКАРЯ 🇩🇪</>
+          )}
         </button>
 
         {/* Chat messages */}
@@ -323,7 +341,7 @@ export default function AuraHome() {
   }
 
   // ============================================================
-  // MEDS VIEW (існуючий)
+  // MEDS VIEW
   // ============================================================
   if (view === 'meds') {
     return (
@@ -373,7 +391,7 @@ export default function AuraHome() {
   }
 
   // ============================================================
-  // HOME VIEW (оновлений з кнопкою AI)
+  // HOME VIEW
   // ============================================================
   return (
     <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden font-sans">

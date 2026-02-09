@@ -7,7 +7,7 @@ export LD_LIBRARY_PATH=/data/data/com.termux/files/usr/lib
 export PATH=/data/data/com.termux/files/usr/bin:$PATH
 
 # AURA AI
-export GEMINI_API_KEY="AIzaSyBj9ypgLkONgOsACD8TEtfsQ2OLACSgFUs"
+export GEMINI_API_KEY="AIzaSyBpTYpJaveaFn_3Gxa8fA-1l9tyFpM4ums"
 export AURA_BOT_TOKEN="8250645018:AAG0NTcU2XQPYdjmwYE3jBN3dxRfvD_I1vM"
 export AURA_SON_CHAT_ID="-1003578591855"
 
