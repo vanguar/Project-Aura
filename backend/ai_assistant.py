@@ -214,6 +214,61 @@ SUMMARIZE_PROMPT_FINAL_REPORT = """Створи СТИСЛИЙ ЗВІТ НА У�
 {doctor_dialog}
 """
 
+# ============================================================
+# ПРОМПТ ПЕРЕКЛАДАЧА
+# ============================================================
+
+TRANSLATOR_PROMPT_DE_TO_UA = """Ти — перекладач-помічник AURA для 77-річної пацієнтки Галини Іванівни.
+
+Лікар щойно сказав щось НІМЕЦЬКОЮ. Переклади це для мами УКРАЇНСЬКОЮ.
+
+ПРАВИЛА:
+- Перекладай НЕ дослівно, а ЗРОЗУМІЛО для літньої людини
+- Медичні терміни заміняй простими словами
+- Тон: теплий, спокійний, як від близької людини
+- Якщо лікар питає — сформулюй питання просто
+- Коротко, 1-3 речення максимум
+- НЕ додавай нічого від себе, тільки переклад змісту
+
+Приклад:
+Лікар: "Wie fühlen Sie sich heute? Haben Sie Schwindel?"
+Переклад: "Мамо, лікар питає: як ви себе сьогодні почуваєте? Чи кружиться голова?"
+"""
+
+TRANSLATOR_PROMPT_UA_TO_DE = """Du bist der Übersetzer-Assistent AURA. Die Patientin (77 Jahre, Parkinson, spricht nur Ukrainisch) hat gerade etwas auf UKRAINISCH gesagt.
+
+Übersetze ihre Antwort ins DEUTSCHE für den Arzt.
+
+REGELN:
+- Interpretiere verwirrte oder unklare Aussagen der Patientin zu klaren medizinischen Informationen
+- Wenn die Patientin etwas unklar beschreibt — formuliere es medizinisch verständlich
+- Kurz und präzise, 1-3 Sätze
+- Wenn die Patientin Schmerzen beschreibt, gib die Lokalisation und Art an
+- Füge NICHTS hinzu, was die Patientin NICHT gesagt hat
+- Wenn die Patientin nur "Ja" oder "Nein" sagt — übersetze einfach "Ja" oder "Nein"
+
+Beispiel:
+Patientin: "Ой, в мене тут болить, оце все крутиться"
+Übersetzung: "Die Patientin klagt über Schmerzen (sie deutet auf den Bereich) und berichtet über Schwindelgefühle."
+"""
+
+TRANSLATOR_SESSION_REPORT = """Створи звіт про сеанс перекладу між лікарем та мамою.
+
+ПРАВИЛА: Пиши ВИКЛЮЧНО те, що було сказано. НЕ вигадуй.
+
+Формат:
+🔄 ЗВІТ ПРО СЕАНС ПЕРЕКЛАДУ
+
+Кількість реплік лікаря: {doctor_count}
+Кількість реплік мами: {mama_count}
+
+📝 ПОВНИЙ ДІАЛОГ:
+{full_dialog}
+
+📋 КОРОТКИЙ ЗМІСТ:
+[2-3 речення про що була розмова, ТІЛЬКИ на основі діалогу]
+"""
+
 
 # ============================================================
 # КЛАС ПОМІЧНИКА
@@ -229,6 +284,9 @@ class AuraAssistant:
         self.mama_summary_for_doctor = ""   # резюме мами → лікарю (DE)
         self.doctor_summary_for_mama = ""   # резюме лікаря → мамі (UA)
         self.doctor_session_active = False  # чи був активний сеанс лікаря
+        # Режим перекладача
+        self.translator_messages = []  # історія перекладу [{who: "doctor"/"mama", original: str, translated: str}]
+        self.translator_active = False
         self.load_history()
 
     # --- Завантаження та збереження історії ---
@@ -245,6 +303,8 @@ class AuraAssistant:
                     self.mama_summary_for_doctor = data.get("mama_summary_for_doctor", "")
                     self.doctor_summary_for_mama = data.get("doctor_summary_for_mama", "")
                     self.doctor_session_active = data.get("doctor_session_active", False)
+                    self.translator_messages = data.get("translator_messages", [])
+                    self.translator_active = data.get("translator_active", False)
                     logger.info(f"📂 Історію завантажено: {len(self.messages)} повідомлень, режим: {self.mode}")
             else:
                 logger.info("📂 Файл історії не знайдено, починаємо з нуля")
@@ -263,7 +323,9 @@ class AuraAssistant:
                 "doctor_messages": self.doctor_messages,
                 "mama_summary_for_doctor": self.mama_summary_for_doctor,
                 "doctor_summary_for_mama": self.doctor_summary_for_mama,
-                "doctor_session_active": self.doctor_session_active
+                "doctor_session_active": self.doctor_session_active,
+                "translator_messages": self.translator_messages,
+                "translator_active": self.translator_active
             }
             with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -538,6 +600,120 @@ class AuraAssistant:
         except Exception as e:
             logger.error(f"❌ Помилка Telegram: {e}")
 
+    # --- Режим перекладача ---
+    def start_translator(self):
+        """Увімкнути режим перекладача"""
+        self.translator_active = True
+        self.translator_messages = []
+        self.save_history()
+
+        self._send_telegram(
+            "🔄 *РЕЖИМ ПЕРЕКЛАДАЧА*\n"
+            "Розпочато сеанс перекладу між лікарем та мамою."
+        )
+        logger.info("🔄 Режим перекладача УВІМКНЕНО")
+
+    def stop_translator(self):
+        """Зупинити режим перекладача та відправити звіт"""
+        self.translator_active = False
+
+        # Формуємо звіт
+        if self.translator_messages:
+            self._send_translator_report()
+
+        result_messages = list(self.translator_messages)
+        self.translator_messages = []
+        self.save_history()
+
+        logger.info("🔄 Режим перекладача ВИМКНЕНО")
+        return result_messages
+
+    def translate_doctor(self, german_text):
+        """Перекласти слова лікаря (DE → UA) для мами"""
+        messages = [
+            {"role": "system", "content": TRANSLATOR_PROMPT_DE_TO_UA},
+            {"role": "user", "content": german_text}
+        ]
+        translation = self._call_openai(TRANSLATOR_PROMPT_DE_TO_UA, messages)
+
+        self.translator_messages.append({
+            "who": "doctor",
+            "original": german_text,
+            "translated": translation,
+            "timestamp": datetime.now().isoformat()
+        })
+        self.save_history()
+
+        return translation
+
+    def translate_mama(self, ukrainian_text):
+        """Перекласти слова мами (UA → DE) для лікаря"""
+        messages = [
+            {"role": "system", "content": TRANSLATOR_PROMPT_UA_TO_DE},
+            {"role": "user", "content": ukrainian_text}
+        ]
+        translation = self._call_openai(TRANSLATOR_PROMPT_UA_TO_DE, messages)
+
+        self.translator_messages.append({
+            "who": "mama",
+            "original": ukrainian_text,
+            "translated": translation,
+            "timestamp": datetime.now().isoformat()
+        })
+        self.save_history()
+
+        return translation
+
+    def _send_translator_report(self):
+        """Відправити звіт про сеанс перекладу в Telegram"""
+        try:
+            lines = []
+            doctor_count = 0
+            mama_count = 0
+            for msg in self.translator_messages:
+                if msg["who"] == "doctor":
+                    doctor_count += 1
+                    lines.append(f"🩺 Arzt: {msg['original']}")
+                    lines.append(f"   → 🇺🇦 {msg['translated']}")
+                else:
+                    mama_count += 1
+                    lines.append(f"👩 Мама: {msg['original']}")
+                    lines.append(f"   → 🇩🇪 {msg['translated']}")
+                lines.append("")
+
+            full_dialog = "\n".join(lines)
+
+            # Генеруємо короткий зміст
+            report_prompt = TRANSLATOR_SESSION_REPORT.format(
+                doctor_count=doctor_count,
+                mama_count=mama_count,
+                full_dialog=full_dialog
+            )
+            report = self._generate_summary(report_prompt, "")
+
+            now = datetime.now().strftime("%H:%M %d.%m.%Y")
+            final_message = (
+                f"✅ *СЕАНС ПЕРЕКЛАДУ ЗАВЕРШЕНО*\n"
+                f"🕐 {now}\n\n"
+                f"{report}"
+            )
+
+            # Telegram має ліміт 4096 символів
+            if len(final_message) > 4000:
+                # Відправляємо спочатку звіт, потім діалог окремо
+                self._send_telegram(final_message[:4000])
+                # Відправляємо повний діалог частинами
+                dialog_text = f"📝 *ПОВНИЙ ДІАЛОГ:*\n\n{full_dialog}"
+                for i in range(0, len(dialog_text), 4000):
+                    self._send_telegram(dialog_text[i:i+4000])
+            else:
+                self._send_telegram(final_message)
+
+            logger.info("📨 Звіт перекладача відправлено в Telegram")
+        except Exception as e:
+            logger.error(f"❌ Помилка звіту перекладача: {e}")
+            self._send_telegram("✅ Сеанс перекладу завершено.")
+
     # --- Управління історією ---
     def get_history(self):
         """Повернути історію діалогу"""
@@ -547,6 +723,7 @@ class AuraAssistant:
             "has_mama_context": len(self.mama_messages) > 0,
             "has_doctor_context": len(self.doctor_messages) > 0,
             "doctor_session_active": self.doctor_session_active,
+            "translator_active": self.translator_active,
             "messages": [
                 {
                     "role": m["role"],
@@ -565,6 +742,8 @@ class AuraAssistant:
         self.mama_summary_for_doctor = ""
         self.doctor_summary_for_mama = ""
         self.doctor_session_active = False
+        self.translator_messages = []
+        self.translator_active = False
         self.mode = "normal"
         self.save_history()
         logger.info("🗑️ Історію очищено")

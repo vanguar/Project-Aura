@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff, Bot, Stethoscope, Mic, MicOff, Trash2, Send } from 'lucide-react';
+import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff, Bot, Stethoscope, Mic, MicOff, Trash2, Send, Languages } from 'lucide-react';
 
 export default function AuraHome() {
   const [view, setView] = useState<'home' | 'meds' | 'ai'>('home');
@@ -15,11 +15,12 @@ export default function AuraHome() {
 
   // AI Chat state
   const [aiMessages, setAiMessages] = useState<Array<{role: string, content: string}>>([]);
-  const [aiMode, setAiMode] = useState<'normal' | 'doctor'>('normal');
+  const [aiMode, setAiMode] = useState<'normal' | 'doctor' | 'translator'>('normal');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiListening, setAiListening] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [modeSwitching, setModeSwitching] = useState(false);
+  const [translatorWho, setTranslatorWho] = useState<'doctor' | 'mama'>('doctor');
 
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -199,6 +200,86 @@ export default function AuraHome() {
   };
 
   // ============================================================
+  // TRANSLATOR FUNCTIONS
+  // ============================================================
+
+  const startTranslator = async () => {
+    setModeSwitching(true);
+    try {
+      await fetch(`http://${serverIp}:8000/translator/start`, { method: 'POST' });
+      setAiMode('translator');
+      setAiMessages([{
+        role: 'system',
+        content: '🔄 Режим перекладача увімкнено.\n🩺 Натисніть синю кнопку — говорить ЛІКАР (🇩🇪)\n👩 Натисніть жовту кнопку — говорить МАМА (🇺🇦)'
+      }]);
+    } catch (e) {
+      alert("Помилка зв'язку з сервером");
+    }
+    setModeSwitching(false);
+  };
+
+  const stopTranslator = async () => {
+    setModeSwitching(true);
+    try {
+      await fetch(`http://${serverIp}:8000/translator/stop`, { method: 'POST' });
+      setAiMode('normal');
+      setAiMessages([{
+        role: 'system',
+        content: '✅ Сеанс перекладу завершено. Звіт надіслано синові.'
+      }]);
+    } catch (e) {
+      alert("Помилка зв'язку з сервером");
+    }
+    setModeSwitching(false);
+  };
+
+  const sendTranslatorMessage = async (text: string, who: 'doctor' | 'mama') => {
+    if (!text.trim() || aiLoading) return;
+    setTextInput("");
+    setAiLoading(true);
+
+    const label = who === 'doctor' ? '🩺 Arzt' : '👩 Мама';
+    setAiMessages(prev => [...prev, { role: 'user', content: `${label}: ${text}` }]);
+
+    try {
+      const res = await fetch(`http://${serverIp}:8000/translator/translate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, who })
+      });
+      const data = await res.json();
+      const transLabel = who === 'doctor' ? '🇺🇦 Переклад для мами' : '🇩🇪 Übersetzung für den Arzt';
+      setAiMessages(prev => [...prev, { role: 'assistant', content: `${transLabel}: ${data.translation}` }]);
+    } catch (e) {
+      setAiMessages(prev => [...prev, { role: 'assistant', content: '❌ Помилка перекладу' }]);
+    }
+    setAiLoading(false);
+  };
+
+  const startTranslatorVoice = (who: 'doctor' | 'mama') => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) { alert("Браузер не підтримує розпізнавання мови"); return; }
+    if (recognitionRef.current) recognitionRef.current.stop();
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.lang = who === 'doctor' ? 'de-DE' : 'uk-UA';
+    recognition.continuous = false;
+
+    recognition.onstart = () => { setAiListening(true); setTranslatorWho(who); };
+
+    recognition.onresult = (event: any) => {
+      const text = event.results[0][0].transcript;
+      sendTranslatorMessage(text, who);
+      setAiListening(false);
+    };
+
+    recognition.onerror = () => setAiListening(false);
+    recognition.onend = () => setAiListening(false);
+    recognition.start();
+  };
+
+  // ============================================================
   // AI CHAT VIEW
   // ============================================================
   if (view === 'ai') {
@@ -211,14 +292,16 @@ export default function AuraHome() {
           </button>
           <div className="text-center">
             <h2 className="text-xl font-black flex items-center gap-2">
-              {aiMode === 'doctor' ? (
+              {aiMode === 'translator' ? (
+                <><Languages size={24} /> ПЕРЕКЛАДАЧ</>
+              ) : aiMode === 'doctor' ? (
                 <><Stethoscope size={24} /> ARZT-MODUS</>
               ) : (
                 <><Bot size={24} /> AI-ПОМІЧНИК</>
               )}
             </h2>
             <p className="text-xs opacity-60">
-              {aiMode === 'doctor' ? 'Deutsch · Medizinisch' : 'Українська · Галина Іванівна'}
+              {aiMode === 'translator' ? '🇩🇪 Deutsch ↔ Українська 🇺🇦' : aiMode === 'doctor' ? 'Deutsch · Medizinisch' : 'Українська · Галина Іванівна'}
             </p>
           </div>
           <button onClick={clearAiHistory} className="p-2">
@@ -226,30 +309,53 @@ export default function AuraHome() {
           </button>
         </div>
 
-        {/* Doctor mode toggle */}
-        <button
-          onClick={toggleDoctorMode}
-          disabled={modeSwitching}
-          className={`mx-3 mt-2 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-lg font-black active:scale-95 ${
-            modeSwitching ? 'opacity-50' : ''
-          } ${
-            aiMode === 'doctor'
-              ? 'bg-green-700 border-green-500 text-white'
-              : 'bg-green-600 border-green-400 text-white'
-          }`}
-        >
-          {modeSwitching ? (
-            <div className="flex gap-1.5">
-              <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
-              <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
-              <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
-            </div>
-          ) : aiMode === 'doctor' ? (
-            <><ArrowLeft size={20} /> ПОВЕРНУТИ РЕЖИМ МАМИ 🇺🇦</>
+        {/* Mode toggle buttons */}
+        <div className="mx-3 mt-2 flex gap-2">
+          {aiMode === 'translator' ? (
+            <button
+              onClick={stopTranslator}
+              disabled={modeSwitching}
+              className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-base font-black active:scale-95 bg-orange-600 border-orange-400 text-white ${modeSwitching ? 'opacity-50' : ''}`}
+            >
+              {modeSwitching ? '...' : <><ArrowLeft size={18} /> ЗАВЕРШИТИ ПЕРЕКЛАД</>}
+            </button>
           ) : (
-            <><Stethoscope size={20} /> УВІМКНУТИ РЕЖИМ ЛІКАРЯ 🇩🇪</>
+            <>
+              <button
+                onClick={toggleDoctorMode}
+                disabled={modeSwitching}
+                className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 ${
+                  modeSwitching ? 'opacity-50' : ''
+                } ${
+                  aiMode === 'doctor'
+                    ? 'bg-green-700 border-green-500 text-white'
+                    : 'bg-green-600 border-green-400 text-white'
+                }`}
+              >
+                {modeSwitching ? (
+                  <div className="flex gap-1.5">
+                    <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
+                    <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
+                    <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                  </div>
+                ) : aiMode === 'doctor' ? (
+                  <><ArrowLeft size={16} /> МАМА 🇺🇦</>
+                ) : (
+                  <><Stethoscope size={16} /> ЛІКАР 🇩🇪</>
+                )}
+              </button>
+              {aiMode === 'normal' && (
+                <button
+                  onClick={startTranslator}
+                  disabled={modeSwitching}
+                  className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 bg-orange-500 border-orange-400 text-white ${modeSwitching ? 'opacity-50' : ''}`}
+                >
+                  <Languages size={16} /> ПЕРЕКЛАДАЧ 🔄
+                </button>
+              )}
+            </>
           )}
-        </button>
+        </div>
 
         {/* Chat messages */}
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -300,41 +406,98 @@ export default function AuraHome() {
 
         {/* Input area */}
         <div className="p-2 bg-slate-900 border-t border-slate-800">
-          {/* Text input row */}
-          <div className="flex gap-2 mb-2">
-            <input
-              type="text"
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') sendAiMessage(textInput); }}
-              placeholder={aiMode === 'doctor' ? 'Nachricht eingeben...' : 'Написати повідомлення...'}
-              className="flex-1 bg-slate-800 text-white text-lg px-4 py-3 rounded-2xl border border-slate-700 outline-none focus:border-blue-500"
-            />
-            <button
-              onClick={() => sendAiMessage(textInput)}
-              disabled={!textInput.trim() || aiLoading}
-              className="bg-blue-600 p-3 rounded-2xl active:scale-95 disabled:opacity-30"
-            >
-              <Send size={24} />
-            </button>
-          </div>
-
-          {/* Voice button */}
-          <button
-            onClick={startAiVoice}
-            disabled={aiLoading}
-            className={`w-full py-4 rounded-2xl border-4 flex items-center justify-center gap-3 text-2xl font-black uppercase active:scale-95 ${
-              aiListening
-                ? 'bg-red-600 border-red-400 animate-pulse'
-                : 'bg-blue-600 border-blue-400'
-            }`}
-          >
-            {aiListening ? <MicOff size={32} /> : <Mic size={32} />}
-            {aiListening 
-              ? (aiMode === 'doctor' ? 'HÖRE ZU...' : 'СЛУХАЮ...')
-              : (aiMode === 'doctor' ? 'SPRECHEN' : 'ГОВОРИТИ 🎙️')
-            }
-          </button>
+          {aiMode === 'translator' ? (
+            /* TRANSLATOR: Two microphone buttons */
+            <div className="flex flex-col gap-2">
+              {/* Text input for translator */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  placeholder="Введіть текст / Text eingeben..."
+                  className="flex-1 bg-slate-800 text-white text-base px-4 py-2 rounded-2xl border border-slate-700 outline-none focus:border-blue-500"
+                />
+                <button
+                  onClick={() => { sendTranslatorMessage(textInput, 'doctor'); }}
+                  disabled={!textInput.trim() || aiLoading}
+                  className="bg-blue-600 px-3 py-2 rounded-2xl active:scale-95 disabled:opacity-30 text-xs font-bold"
+                >
+                  🇩🇪
+                </button>
+                <button
+                  onClick={() => { sendTranslatorMessage(textInput, 'mama'); }}
+                  disabled={!textInput.trim() || aiLoading}
+                  className="bg-yellow-600 px-3 py-2 rounded-2xl active:scale-95 disabled:opacity-30 text-xs font-bold"
+                >
+                  🇺🇦
+                </button>
+              </div>
+              {/* Two mic buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => startTranslatorVoice('doctor')}
+                  disabled={aiLoading}
+                  className={`flex-1 py-4 rounded-2xl border-4 flex items-center justify-center gap-2 text-lg font-black active:scale-95 ${
+                    aiListening && translatorWho === 'doctor'
+                      ? 'bg-red-600 border-red-400 animate-pulse'
+                      : 'bg-blue-600 border-blue-400'
+                  }`}
+                >
+                  {aiListening && translatorWho === 'doctor' ? <MicOff size={24} /> : <Mic size={24} />}
+                  🩺 ARZT
+                </button>
+                <button
+                  onClick={() => startTranslatorVoice('mama')}
+                  disabled={aiLoading}
+                  className={`flex-1 py-4 rounded-2xl border-4 flex items-center justify-center gap-2 text-lg font-black active:scale-95 ${
+                    aiListening && translatorWho === 'mama'
+                      ? 'bg-red-600 border-red-400 animate-pulse'
+                      : 'bg-yellow-500 border-yellow-400'
+                  }`}
+                >
+                  {aiListening && translatorWho === 'mama' ? <MicOff size={24} /> : <Mic size={24} />}
+                  👩 МАМА
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* NORMAL / DOCTOR: Standard input */
+            <>
+              <div className="flex gap-2 mb-2">
+                <input
+                  type="text"
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') sendAiMessage(textInput); }}
+                  placeholder={aiMode === 'doctor' ? 'Nachricht eingeben...' : 'Написати повідомлення...'}
+                  className="flex-1 bg-slate-800 text-white text-lg px-4 py-3 rounded-2xl border border-slate-700 outline-none focus:border-blue-500"
+                />
+                <button
+                  onClick={() => sendAiMessage(textInput)}
+                  disabled={!textInput.trim() || aiLoading}
+                  className="bg-blue-600 p-3 rounded-2xl active:scale-95 disabled:opacity-30"
+                >
+                  <Send size={24} />
+                </button>
+              </div>
+              <button
+                onClick={startAiVoice}
+                disabled={aiLoading}
+                className={`w-full py-4 rounded-2xl border-4 flex items-center justify-center gap-3 text-2xl font-black uppercase active:scale-95 ${
+                  aiListening
+                    ? 'bg-red-600 border-red-400 animate-pulse'
+                    : 'bg-blue-600 border-blue-400'
+                }`}
+              >
+                {aiListening ? <MicOff size={32} /> : <Mic size={32} />}
+                {aiListening 
+                  ? (aiMode === 'doctor' ? 'HÖRE ZU...' : 'СЛУХАЮ...')
+                  : (aiMode === 'doctor' ? 'SPRECHEN' : 'ГОВОРИТИ 🎙️')
+                }
+              </button>
+            </>
+          )}
         </div>
       </main>
     );

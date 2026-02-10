@@ -213,6 +213,53 @@ async def ai_chat_clear():
     return {"status": "cleared"}
 
 # ============================================================
+# ЕНДПОІНТИ ПЕРЕКЛАДАЧА
+# ============================================================
+
+@app.post("/translator/start")
+async def translator_start():
+    """Увімкнути режим перекладача"""
+    ai_bot.start_translator()
+    return {"status": "translator_active"}
+
+@app.post("/translator/stop")
+async def translator_stop():
+    """Зупинити режим перекладача та отримати звіт"""
+    messages = ai_bot.stop_translator()
+    return {"status": "translator_stopped", "messages": messages}
+
+class TranslatorMessage(BaseModel):
+    text: str
+    who: str  # "doctor" або "mama"
+
+@app.post("/translator/translate")
+async def translator_translate(body: TranslatorMessage):
+    """Переклад повідомлення"""
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="Порожнє повідомлення")
+
+    if body.who == "doctor":
+        translation = ai_bot.translate_doctor(body.text)
+        tts_lang_text = translation  # Озвучуємо переклад для мами
+    else:
+        translation = ai_bot.translate_mama(body.text)
+        tts_lang_text = translation  # Озвучуємо переклад для лікаря
+
+    # Озвучення перекладу через OpenAI TTS
+    try:
+        threading.Thread(
+            target=speak_openai_tts, args=(tts_lang_text,), daemon=True
+        ).start()
+    except Exception as e:
+        logger.warning(f"TTS помилка: {e}")
+
+    return {
+        "original": body.text,
+        "translation": translation,
+        "who": body.who
+    }
+
+# ============================================================
 # ЛОГІКА ПОШУКУ ТА СТРІМІНГУ ВІДЕО (існуюча)
 # ============================================================
 
