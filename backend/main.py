@@ -6,6 +6,7 @@ import time
 import logging
 import threading
 import mimetypes
+import requests as http_requests
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +34,46 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- OpenAI TTS ---
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+TTS_AUDIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts_output.mp3")
+
+def speak_openai_tts(text):
+    """Озвучити текст через OpenAI TTS API та відтворити через Termux"""
+    try:
+        response = http_requests.post(
+            "https://api.openai.com/v1/audio/speech",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "tts-1",
+                "input": text,
+                "voice": "nova",
+                "response_format": "mp3"
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+
+        with open(TTS_AUDIO_FILE, "wb") as f:
+            f.write(response.content)
+
+        # Відтворити через termux-media-player
+        subprocess.run(['termux-media-player', 'play', TTS_AUDIO_FILE],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        logger.warning(f"OpenAI TTS помилка: {e}")
+        # Fallback на termux-tts-speak
+        try:
+            subprocess.Popen(
+                ['termux-tts-speak', '-l', 'uk-UA', '-r', '0.85', text[:300]],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+        except:
+            pass
 
 # --- ГЛОБАЛЬНІ ЗМІННІ ДЛЯ ЛІКІВ ---
 reminders_enabled = False
@@ -131,14 +172,12 @@ async def ai_chat(body: ChatMessage):
     
     result = ai_bot.chat(body.message)
     
-    # Озвучення відповіді через TTS
+    # Озвучення відповіді через OpenAI TTS
     try:
-        lang = "de-DE" if ai_bot.mode == "doctor" else "uk-UA"
         tts_text = result["reply"][:500]
-        subprocess.Popen(
-            ['termux-tts-speak', '-l', lang, '-r', '0.85', tts_text],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
+        threading.Thread(
+            target=speak_openai_tts, args=(tts_text,), daemon=True
+        ).start()
     except Exception as e:
         logger.warning(f"TTS помилка: {e}")
     
