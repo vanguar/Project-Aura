@@ -184,7 +184,7 @@ async def ai_chat(body: ChatMessage):
     
     # Озвучення відповіді через OpenAI TTS
     try:
-        tts_text = result["reply"][:500]
+        tts_text = result["reply"][:1500]
         threading.Thread(
             target=speak_openai_tts, args=(tts_text,), daemon=True
         ).start()
