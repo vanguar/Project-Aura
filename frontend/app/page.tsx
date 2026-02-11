@@ -150,38 +150,18 @@ export default function AuraHome() {
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = aiMode === 'doctor' ? 'de-DE' : 'uk-UA';
-    recognition.continuous = true;
-    recognition.interimResults = false;
-
-    let silenceTimer: any = null;
-    let fullText = '';
+    recognition.continuous = false;
 
     recognition.onstart = () => setAiListening(true);
 
     recognition.onresult = (event: any) => {
-      clearTimeout(silenceTimer);
-      const latest = event.results[event.results.length - 1][0].transcript;
-      fullText += latest + ' ';
-
-      silenceTimer = setTimeout(() => {
-        if (fullText.trim()) {
-          recognition.stop();
-          sendAiMessage(fullText.trim());
-          setAiListening(false);
-          fullText = '';
-        }
-      }, 4000);
-    };
-
-    recognition.onerror = () => { clearTimeout(silenceTimer); setAiListening(false); };
-    recognition.onend = () => {
-      clearTimeout(silenceTimer);
-      if (fullText.trim()) {
-        sendAiMessage(fullText.trim());
-        fullText = '';
-      }
+      const text = event.results[0][0].transcript;
+      sendAiMessage(text);
       setAiListening(false);
     };
+
+    recognition.onerror = () => setAiListening(false);
+    recognition.onend = () => setAiListening(false);
     recognition.start();
   };
 
