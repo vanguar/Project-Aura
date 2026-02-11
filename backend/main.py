@@ -25,6 +25,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S"
 )
 logger = logging.getLogger("AURA_DEBUG")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+TTS_AUDIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aura_tts.mp3")
 
 app = FastAPI()
 
