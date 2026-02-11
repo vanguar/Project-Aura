@@ -35,45 +35,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- OpenAI TTS ---
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-TTS_AUDIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts_output.mp3")
-
 def speak_openai_tts(text):
-    """Озвучити текст через OpenAI TTS API та відтворити через Termux"""
-    try:
-        response = http_requests.post(
-            "https://api.openai.com/v1/audio/speech",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "tts-1",
-                "input": text,
-                "voice": "nova",
-                "response_format": "mp3"
-            },
-            timeout=30
-        )
-        response.raise_for_status()
+    """Озвучити текст через OpenAI TTS API з retry при 401"""
+    api_key = os.environ.get("OPENAI_API_KEY", OPENAI_API_KEY)
 
-        with open(TTS_AUDIO_FILE, "wb") as f:
-            f.write(response.content)
-
-        # Відтворити через termux-media-player
-        subprocess.run(['termux-media-player', 'play', TTS_AUDIO_FILE],
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as e:
-        logger.warning(f"OpenAI TTS помилка: {e}")
-        # Fallback на termux-tts-speak
+    for attempt in range(3):
         try:
-            subprocess.Popen(
-                ['termux-tts-speak', '-l', 'uk-UA', '-r', '0.85', text[:300]],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            response = http_requests.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "tts-1",
+                    "input": text,
+                    "voice": "nova",
+                    "response_format": "mp3"
+                },
+                timeout=30
             )
-        except:
-            pass
+
+            if response.status_code == 200:
+                with open(TTS_AUDIO_FILE, "wb") as f:
+                    f.write(response.content)
+                subprocess.run(['termux-media-player', 'play', TTS_AUDIO_FILE],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            elif response.status_code in (401, 403, 429):
+                logger.warning(f"TTS {response.status_code} (спроба {attempt+1}/3)")
+                api_key = os.environ.get("OPENAI_API_KEY", OPENAI_API_KEY)
+                time.sleep(3)
+                continue
+            else:
+                response.raise_for_status()
+
+        except Exception as e:
+            logger.warning(f"TTS помилка (спроба {attempt+1}/3): {e}")
+            if attempt < 2:
+                time.sleep(2)
+                continue
+
+    # Fallback
+    try:
+        subprocess.Popen(
+            ['termux-tts-speak', '-l', 'uk-UA', '-r', '0.85', text[:300]],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+    except:
+        pass
 
 # --- ГЛОБАЛЬНІ ЗМІННІ ДЛЯ ЛІКІВ ---
 reminders_enabled = False

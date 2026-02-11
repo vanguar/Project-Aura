@@ -520,13 +520,9 @@ class AuraAssistant:
 
     # --- OpenAI API ---
     def _call_openai(self, system_prompt, messages):
-        """Виклик OpenAI API"""
+        """Виклик OpenAI API з автоматичним retry при 401/5xx"""
+        global OPENAI_API_KEY
         url = "https://api.openai.com/v1/chat/completions"
-
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        }
 
         body = {
             "model": OPENAI_MODEL,
@@ -536,24 +532,64 @@ class AuraAssistant:
             "top_p": 0.9
         }
 
-        try:
-            response = requests.post(url, headers=headers, json=body, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+        max_retries = 3
+        for attempt in range(max_retries):
+            current_key = os.environ.get("OPENAI_API_KEY", OPENAI_API_KEY)
+            headers = {
+                "Authorization": f"Bearer {current_key}",
+                "Content-Type": "application/json"
+            }
 
-            choices = data.get("choices", [])
-            if choices:
-                return choices[0].get("message", {}).get("content", "Вибачте, я не змогла сформувати відповідь.")
+            try:
+                response = requests.post(url, headers=headers, json=body, timeout=30)
 
-            logger.error(f"Порожня відповідь OpenAI: {data}")
-            return "Вибачте, сталася помилка. Спробуйте ще раз."
+                if response.status_code == 200:
+                    data = response.json()
+                    choices = data.get("choices", [])
+                    if choices:
+                        return choices[0].get("message", {}).get("content", "Вибачте, я не змогла сформувати відповідь.")
+                    logger.error(f"Порожня відповідь OpenAI: {data}")
+                    return "Вибачте, сталася помилка. Спробуйте ще раз."
 
-        except requests.exceptions.Timeout:
-            logger.error("⏱️ Таймаут OpenAI API")
-            return "Вибачте, відповідь займає занадто довго. Спробуйте ще раз."
-        except Exception as e:
-            logger.error(f"❌ Помилка OpenAI API: {e}")
-            return "Вибачте, сталася технічна помилка. Спробуйте пізніше."
+                elif response.status_code in (401, 403):
+                    logger.warning(f"⚠️ OpenAI {response.status_code} (спроба {attempt+1}/{max_retries})")
+                    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", OPENAI_API_KEY)
+                    time.sleep(2)
+                    continue
+
+                elif response.status_code == 429:
+                    logger.warning(f"⚠️ OpenAI 429 Rate Limit (спроба {attempt+1}/{max_retries})")
+                    time.sleep(5)
+                    continue
+
+                elif response.status_code >= 500:
+                    logger.warning(f"⚠️ OpenAI {response.status_code} Server Error (спроба {attempt+1}/{max_retries})")
+                    time.sleep(3)
+                    continue
+
+                else:
+                    response.raise_for_status()
+
+            except requests.exceptions.Timeout:
+                logger.error(f"⏱️ Таймаут (спроба {attempt+1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                return "Вибачте, відповідь займає занадто довго. Спробуйте ще раз."
+            except requests.exceptions.ConnectionError:
+                logger.error(f"🌐 Немає з'єднання (спроба {attempt+1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(3)
+                    continue
+                return "Вибачте, немає з'єднання з інтернетом."
+            except Exception as e:
+                logger.error(f"❌ Помилка OpenAI: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                return "Вибачте, сталася технічна помилка."
+
+        return "Вибачте, сервіс тимчасово недоступний. Спробуйте через хвилину."
 
     # --- Telegram ---
     def _handle_notification(self, reply_text, user_message):
