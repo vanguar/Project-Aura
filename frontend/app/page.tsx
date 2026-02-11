@@ -151,33 +151,37 @@ export default function AuraHome() {
     recognitionRef.current = recognition;
     recognition.lang = aiMode === 'doctor' ? 'de-DE' : 'uk-UA';
     recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.interimResults = false;
 
     let silenceTimer: any = null;
-    let finalTranscript = '';
+    let fullText = '';
 
     recognition.onstart = () => setAiListening(true);
 
     recognition.onresult = (event: any) => {
       clearTimeout(silenceTimer);
-      finalTranscript = '';
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript + ' ';
-        }
-      }
-      // Ждём 4 секунди тиші перед відправкою (можна змінити на 5000 або 6000)
+      const latest = event.results[event.results.length - 1][0].transcript;
+      fullText += latest + ' ';
+
       silenceTimer = setTimeout(() => {
-        if (finalTranscript.trim()) {
+        if (fullText.trim()) {
           recognition.stop();
-          sendAiMessage(finalTranscript.trim());
+          sendAiMessage(fullText.trim());
           setAiListening(false);
+          fullText = '';
         }
       }, 4000);
     };
 
     recognition.onerror = () => { clearTimeout(silenceTimer); setAiListening(false); };
-    recognition.onend = () => { clearTimeout(silenceTimer); setAiListening(false); };
+    recognition.onend = () => {
+      clearTimeout(silenceTimer);
+      if (fullText.trim()) {
+        sendAiMessage(fullText.trim());
+        fullText = '';
+      }
+      setAiListening(false);
+    };
     recognition.start();
   };
 
