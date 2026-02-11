@@ -474,16 +474,25 @@ class AuraAssistant:
             "timestamp": datetime.now().isoformat()
         })
 
+        # Час доби та пора року
+        now = datetime.now()
+        hour = now.hour
+        time_of_day = "ранок" if 5 <= hour < 12 else "день" if 12 <= hour < 18 else "вечір" if 18 <= hour < 22 else "ніч"
+        month = now.month
+        season = "зима" if month in (12, 1, 2) else "весна" if month in (3, 4, 5) else "літо" if month in (6, 7, 8) else "осінь"
+        date_info = now.strftime("%d.%m.%Y, %H:%M")
+        time_context = f"\n\nЗАРАЗ: {date_info}, {time_of_day}, пора року — {season}. Враховуй це у розмові (вітайся відповідно до часу доби, якщо доречно)."
+
         # Вибираємо системний промпт з контекстом іншого режиму
         if self.mode == "doctor":
-            system_prompt = SYSTEM_PROMPT_DOCTOR
+            system_prompt = SYSTEM_PROMPT_DOCTOR + time_context
             if self.mama_summary_for_doctor:
                 system_prompt += (
                     f"\n\n=== AKTUELLE BESCHWERDEN DER PATIENTIN (aus dem Gespräch mit ihr) ===\n"
                     f"{self.mama_summary_for_doctor}"
                 )
         else:
-            system_prompt = SYSTEM_PROMPT_NORMAL
+            system_prompt = SYSTEM_PROMPT_NORMAL + time_context
             if self.doctor_summary_for_mama:
                 system_prompt += (
                     f"\n\n=== ОСТАННІ РЕКОМЕНДАЦІЇ ЛІКАРЯ ===\n"
