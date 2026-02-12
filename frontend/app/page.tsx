@@ -583,7 +583,7 @@ export default function AuraHome() {
         <div className="flex-[2] flex gap-2">
           <button 
             onClick={openMeds} 
-            className="flex-1 bg-red-600 rounded-[40px] border-8 border-red-400 flex flex-col items-center justify-center active:scale-95 shadow-2xl"
+            className="flex-1 bg-green-600 rounded-[40px] border-8 border-green-400 flex flex-col items-center justify-center active:scale-95 shadow-2xl"
           >
             <Heart size={56} fill="white" /><span className="text-2xl font-black mt-1 uppercase tracking-widest">ЛІКИ</span>
           </button>
@@ -600,7 +600,7 @@ export default function AuraHome() {
         <button 
           onClick={() => startVoice('youtube')}
           className={`flex-1 rounded-[30px] border-4 flex items-center justify-center gap-4 active:scale-95 shadow-lg ${
-            isListening && activeMode === 'youtube' ? 'bg-green-600 border-green-400 animate-pulse' : 'bg-slate-800 border-slate-700'
+            isListening && activeMode === 'youtube' ? 'bg-green-600 border-green-400 animate-pulse' : 'bg-red-600 border-red-400'
           }`}
         >
           <Youtube size={40} /><span className="text-2xl font-black uppercase">YouTube</span>
