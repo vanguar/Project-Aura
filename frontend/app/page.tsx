@@ -19,7 +19,8 @@ export default function AuraHome() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiListening, setAiListening] = useState(false);
   const [textInput, setTextInput] = useState("");
-  const [modeSwitching, setModeSwitching] = useState(false);
+  // Используем строку вместо булевого значения, чтобы знать, КАКОЙ режим включается
+ const [modeSwitching, setModeSwitching] = useState<string | null>(null);
   const [translatorWho, setTranslatorWho] = useState<'doctor' | 'mama'>('doctor');
 
   const recognitionRef = useRef<any>(null);
@@ -166,7 +167,7 @@ export default function AuraHome() {
   };
 
   const toggleDoctorMode = async () => {
-    setModeSwitching(true);
+    setModeSwitching('doctor');
     try {
       if (aiMode === 'normal') {
         const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, { method: 'POST' });
@@ -186,7 +187,7 @@ export default function AuraHome() {
     } catch (e) {
       alert("Помилка зв'язку з сервером");
     }
-    setModeSwitching(false);
+    setModeSwitching(null);
   };
 
   const clearAiHistory = async () => {
@@ -204,7 +205,7 @@ export default function AuraHome() {
   // ============================================================
 
   const startTranslator = async () => {
-    setModeSwitching(true);
+    setModeSwitching('translator');
     try {
       await fetch(`http://${serverIp}:8000/translator/start`, { method: 'POST' });
       setAiMode('translator');
@@ -215,11 +216,11 @@ export default function AuraHome() {
     } catch (e) {
       alert("Помилка зв'язку з сервером");
     }
-    setModeSwitching(false);
+    setModeSwitching(null);
   };
 
   const stopTranslator = async () => {
-    setModeSwitching(true);
+    setModeSwitching('stop');
     try {
       await fetch(`http://${serverIp}:8000/translator/stop`, { method: 'POST' });
       setAiMode('normal');
@@ -230,7 +231,7 @@ export default function AuraHome() {
     } catch (e) {
       alert("Помилка зв'язку з сервером");
     }
-    setModeSwitching(false);
+    setModeSwitching(null);
   };
 
   const sendTranslatorMessage = async (text: string, who: 'doctor' | 'mama') => {
@@ -314,10 +315,10 @@ export default function AuraHome() {
           {aiMode === 'translator' ? (
             <button
               onClick={stopTranslator}
-              disabled={modeSwitching}
+              disabled={modeSwitching !== null}
               className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-base font-black active:scale-95 bg-orange-600 border-orange-400 text-white ${modeSwitching ? 'opacity-50' : ''}`}
             >
-              {modeSwitching ? (
+              {modeSwitching === 'translator' ? (
                 <div className="flex gap-1.5">
                   <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
                   <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
@@ -329,7 +330,7 @@ export default function AuraHome() {
             <>
               <button
                 onClick={toggleDoctorMode}
-                disabled={modeSwitching}
+                disabled={modeSwitching !== null}
                 className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 ${
                   modeSwitching ? 'opacity-50' : ''
                 } ${
@@ -338,7 +339,7 @@ export default function AuraHome() {
                     : 'bg-green-600 border-green-400 text-white'
                 }`}
               >
-                {modeSwitching && aiMode === 'doctor' ? (
+                {modeSwitching === 'doctor' ? (
                   <div className="flex gap-1.5">
                     <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
                     <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
@@ -353,10 +354,10 @@ export default function AuraHome() {
               {aiMode === 'normal' && (
                 <button
                   onClick={startTranslator}
-                  disabled={modeSwitching}
+                  disabled={modeSwitching !== null}
                   className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 bg-orange-500 border-orange-400 text-white`}
                 >
-                  {modeSwitching ? (
+                  {modeSwitching === 'stop' ? (
                     <div className="flex gap-1.5">
                       <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
                       <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
