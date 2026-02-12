@@ -317,7 +317,13 @@ export default function AuraHome() {
               disabled={modeSwitching}
               className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-base font-black active:scale-95 bg-orange-600 border-orange-400 text-white ${modeSwitching ? 'opacity-50' : ''}`}
             >
-              {modeSwitching ? '...' : <><ArrowLeft size={18} /> ЗАВЕРШИТИ ПЕРЕКЛАД</>}
+              {modeSwitching ? (
+                <div className="flex gap-1.5">
+                  <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
+                  <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
+                  <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                </div>
+              ) : <><ArrowLeft size={18} /> ЗАВЕРШИТИ ПЕРЕКЛАД</>}
             </button>
           ) : (
             <>
@@ -332,7 +338,7 @@ export default function AuraHome() {
                     : 'bg-green-600 border-green-400 text-white'
                 }`}
               >
-                {modeSwitching ? (
+                {modeSwitching && aiMode === 'doctor' ? (
                   <div className="flex gap-1.5">
                     <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
                     <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
@@ -348,9 +354,17 @@ export default function AuraHome() {
                 <button
                   onClick={startTranslator}
                   disabled={modeSwitching}
-                  className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 bg-orange-500 border-orange-400 text-white ${modeSwitching ? 'opacity-50' : ''}`}
+                  className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 bg-orange-500 border-orange-400 text-white`}
                 >
-                  <Languages size={16} /> ПЕРЕКЛАДАЧ 🔄
+                  {modeSwitching ? (
+                    <div className="flex gap-1.5">
+                      <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
+                      <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
+                      <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                    </div>
+                  ) : (
+                    <><Languages size={16} /> ПЕРЕКЛАДАЧ 🔄</>
+                  )}
                 </button>
               )}
             </>
