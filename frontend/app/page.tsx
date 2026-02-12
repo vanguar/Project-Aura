@@ -318,7 +318,7 @@ export default function AuraHome() {
               disabled={modeSwitching !== null}
               className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-base font-black active:scale-95 bg-orange-600 border-orange-400 text-white ${modeSwitching ? 'opacity-50' : ''}`}
             >
-              {modeSwitching === 'translator' ? (
+              {modeSwitching === 'stop' ? (
                 <div className="flex gap-1.5">
                   <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
                   <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
