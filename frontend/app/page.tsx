@@ -22,6 +22,9 @@ export default function AuraHome() {
   // Используем строку вместо булевого значения, чтобы знать, КАКОЙ режим включается
  const [modeSwitching, setModeSwitching] = useState<string | null>(null);
   const [translatorWho, setTranslatorWho] = useState<'doctor' | 'mama'>('doctor');
+  // Черновик переводчика: текст после голоса, до отправки
+  const [translatorDraft, setTranslatorDraft] = useState("");
+  const [translatorDraftWho, setTranslatorDraftWho] = useState<'doctor' | 'mama'>('doctor');
 
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -257,7 +260,7 @@ export default function AuraHome() {
     setAiLoading(false);
   };
 
-  const startTranslatorVoice = (who: 'doctor' | 'mama') => {
+  const startTranslatorVoice = (who: 'doctor' | 'mama', append: boolean = false) => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) { alert("Браузер не підтримує розпізнавання мови"); return; }
     if (recognitionRef.current) recognitionRef.current.stop();
@@ -271,13 +274,24 @@ export default function AuraHome() {
 
     recognition.onresult = (event: any) => {
       const text = event.results[0][0].transcript;
-      sendTranslatorMessage(text, who);
+      if (append) {
+        setTranslatorDraft(prev => (prev + ' ' + text).trim());
+      } else {
+        setTranslatorDraft(text);
+        setTranslatorDraftWho(who);
+      }
       setAiListening(false);
     };
 
     recognition.onerror = () => setAiListening(false);
     recognition.onend = () => setAiListening(false);
     recognition.start();
+  };
+
+  const sendTranslatorDraft = () => {
+    if (!translatorDraft.trim() || aiLoading) return;
+    sendTranslatorMessage(translatorDraft.trim(), translatorDraftWho);
+    setTranslatorDraft("");
   };
 
   // ============================================================
@@ -444,57 +458,104 @@ export default function AuraHome() {
           {aiMode === 'translator' ? (
             /* TRANSLATOR: Two microphone buttons */
             <div className="flex flex-col gap-2">
-              {/* Text input for translator */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={textInput}
-                  onChange={(e) => setTextInput(e.target.value)}
-                  placeholder="Введіть текст / Text eingeben..."
-                  className="flex-1 bg-slate-800 text-white text-base px-4 py-2 rounded-2xl border border-slate-700 outline-none focus:border-blue-500"
-                />
-                <button
-                  onClick={() => { sendTranslatorMessage(textInput, 'doctor'); }}
-                  disabled={!textInput.trim() || aiLoading}
-                  className="bg-blue-600 px-3 py-2 rounded-2xl active:scale-95 disabled:opacity-30 text-xs font-bold"
-                >
-                  🇩🇪
-                </button>
-                <button
-                  onClick={() => { sendTranslatorMessage(textInput, 'mama'); }}
-                  disabled={!textInput.trim() || aiLoading}
-                  className="bg-yellow-600 px-3 py-2 rounded-2xl active:scale-95 disabled:opacity-30 text-xs font-bold"
-                >
-                  🇺🇦
-                </button>
-              </div>
-              {/* Two mic buttons */}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => startTranslatorVoice('doctor')}
-                  disabled={aiLoading}
-                  className={`flex-1 py-4 rounded-2xl border-4 flex items-center justify-center gap-2 text-lg font-black active:scale-95 ${
-                    aiListening && translatorWho === 'doctor'
-                      ? 'bg-red-600 border-red-400 animate-pulse'
-                      : 'bg-blue-600 border-blue-400'
-                  }`}
-                >
-                  {aiListening && translatorWho === 'doctor' ? <MicOff size={24} /> : <Mic size={24} />}
-                  🩺 ARZT
-                </button>
-                <button
-                  onClick={() => startTranslatorVoice('mama')}
-                  disabled={aiLoading}
-                  className={`flex-1 py-4 rounded-2xl border-4 flex items-center justify-center gap-2 text-lg font-black active:scale-95 ${
-                    aiListening && translatorWho === 'mama'
-                      ? 'bg-red-600 border-red-400 animate-pulse'
-                      : 'bg-yellow-500 border-yellow-400'
-                  }`}
-                >
-                  {aiListening && translatorWho === 'mama' ? <MicOff size={24} /> : <Mic size={24} />}
-                  👩 МАМА
-                </button>
-              </div>
+              {translatorDraft ? (
+                /* === ЧЕРНОВИК: показываем распознанный текст для проверки === */
+                <div className="flex flex-col gap-2">
+                  <div className={`px-3 py-1.5 rounded-xl text-xs font-bold text-center ${
+                    translatorDraftWho === 'doctor' ? 'bg-blue-900/50 text-blue-300' : 'bg-yellow-900/50 text-yellow-300'
+                  }`}>
+                    {translatorDraftWho === 'doctor' ? '🩺 Лікар сказав:' : '👩 Мама сказала:'}
+                  </div>
+                  <textarea
+                    value={translatorDraft}
+                    onChange={(e) => setTranslatorDraft(e.target.value)}
+                    rows={3}
+                    className="w-full bg-slate-800 text-white text-lg px-4 py-3 rounded-2xl border-2 border-blue-500 outline-none resize-none"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => startTranslatorVoice(translatorDraftWho, true)}
+                      disabled={aiLoading || aiListening}
+                      className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 ${
+                        aiListening ? 'bg-red-600 border-red-400 animate-pulse' : 'bg-slate-700 border-slate-600'
+                      }`}
+                    >
+                      <Mic size={20} />
+                      {aiListening ? '...' : '🎙️ ДОПИСАТИ'}
+                    </button>
+                    <button
+                      onClick={() => setTranslatorDraft("")}
+                      className="py-3 px-4 rounded-2xl border-2 border-red-800 bg-red-900/50 flex items-center justify-center active:scale-95"
+                    >
+                      <Trash2 size={20} className="text-red-400" />
+                    </button>
+                    <button
+                      onClick={sendTranslatorDraft}
+                      disabled={!translatorDraft.trim() || aiLoading}
+                      className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 disabled:opacity-30 ${
+                        translatorDraftWho === 'doctor' ? 'bg-blue-600 border-blue-400' : 'bg-yellow-500 border-yellow-400'
+                      }`}
+                    >
+                      <Send size={20} />
+                      НАДІСЛАТИ ➡️
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* === ОБЫЧНЫЙ РЕЖИМ: микрофоны + ручной ввод === */
+                <>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={textInput}
+                      onChange={(e) => setTextInput(e.target.value)}
+                      placeholder="Або введіть текст вручну..."
+                      className="flex-1 bg-slate-800 text-white text-base px-4 py-2 rounded-2xl border border-slate-700 outline-none focus:border-blue-500"
+                    />
+                    <button
+                      onClick={() => { sendTranslatorMessage(textInput, 'doctor'); setTextInput(""); }}
+                      disabled={!textInput.trim() || aiLoading}
+                      className="bg-blue-600 px-3 py-2 rounded-2xl active:scale-95 disabled:opacity-30 text-xs font-bold"
+                    >
+                      🇩🇪
+                    </button>
+                    <button
+                      onClick={() => { sendTranslatorMessage(textInput, 'mama'); setTextInput(""); }}
+                      disabled={!textInput.trim() || aiLoading}
+                      className="bg-yellow-600 px-3 py-2 rounded-2xl active:scale-95 disabled:opacity-30 text-xs font-bold"
+                    >
+                      🇺🇦
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => startTranslatorVoice('doctor')}
+                      disabled={aiLoading}
+                      className={`flex-1 py-4 rounded-2xl border-4 flex items-center justify-center gap-2 text-lg font-black active:scale-95 ${
+                        aiListening && translatorWho === 'doctor'
+                          ? 'bg-red-600 border-red-400 animate-pulse'
+                          : 'bg-blue-600 border-blue-400'
+                      }`}
+                    >
+                      {aiListening && translatorWho === 'doctor' ? <MicOff size={24} /> : <Mic size={24} />}
+                      🩺 ARZT
+                    </button>
+                    <button
+                      onClick={() => startTranslatorVoice('mama')}
+                      disabled={aiLoading}
+                      className={`flex-1 py-4 rounded-2xl border-4 flex items-center justify-center gap-2 text-lg font-black active:scale-95 ${
+                        aiListening && translatorWho === 'mama'
+                          ? 'bg-red-600 border-red-400 animate-pulse'
+                          : 'bg-yellow-500 border-yellow-400'
+                      }`}
+                    >
+                      {aiListening && translatorWho === 'mama' ? <MicOff size={24} /> : <Mic size={24} />}
+                      👩 МАМА
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             /* NORMAL / DOCTOR: Standard input */
