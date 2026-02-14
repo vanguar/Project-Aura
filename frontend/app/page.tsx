@@ -319,10 +319,16 @@ export default function AuraHome() {
               className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-base font-black active:scale-95 bg-orange-600 border-orange-400 text-white ${modeSwitching ? 'opacity-50' : ''}`}
             >
               {modeSwitching === 'stop' ? (
-                <div className="flex gap-1.5">
-                  <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
-                  <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
-                  <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                <div className="flex items-center gap-2">
+                  <svg width="28" height="28" viewBox="0 0 28 28" className="animate-spin" style={{animationDuration: '3s'}}>
+                    <circle cx="14" cy="6" r="2.5" fill="white" opacity="0.9"/>
+                    <circle cx="20" cy="10" r="2" fill="white" opacity="0.6"/>
+                    <circle cx="20" cy="18" r="1.5" fill="white" opacity="0.4"/>
+                    <circle cx="14" cy="22" r="1.5" fill="white" opacity="0.3"/>
+                    <circle cx="8" cy="18" r="2" fill="white" opacity="0.5"/>
+                    <circle cx="8" cy="10" r="2.5" fill="white" opacity="0.7"/>
+                  </svg>
+                  <span className="text-xs">🤔</span>
                 </div>
               ) : <><ArrowLeft size={18} /> ЗАВЕРШИТИ ПЕРЕКЛАД</>}
             </button>
@@ -332,7 +338,7 @@ export default function AuraHome() {
                 onClick={toggleDoctorMode}
                 disabled={modeSwitching !== null}
                 className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 ${
-                  modeSwitching ? 'opacity-50' : ''
+                  modeSwitching === 'doctor' ? 'opacity-70' : ''
                 } ${
                   aiMode === 'doctor'
                     ? 'bg-green-700 border-green-500 text-white'
@@ -340,10 +346,16 @@ export default function AuraHome() {
                 }`}
               >
                 {modeSwitching === 'doctor' ? (
-                  <div className="flex gap-1.5">
-                    <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
-                    <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
-                    <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                  <div className="flex items-center gap-2">
+                    <svg width="28" height="28" viewBox="0 0 28 28" className="animate-spin" style={{animationDuration: '3s'}}>
+                      <circle cx="14" cy="6" r="2.5" fill="white" opacity="0.9"/>
+                      <circle cx="20" cy="10" r="2" fill="white" opacity="0.6"/>
+                      <circle cx="20" cy="18" r="1.5" fill="white" opacity="0.4"/>
+                      <circle cx="14" cy="22" r="1.5" fill="white" opacity="0.3"/>
+                      <circle cx="8" cy="18" r="2" fill="white" opacity="0.5"/>
+                      <circle cx="8" cy="10" r="2.5" fill="white" opacity="0.7"/>
+                    </svg>
+                    <span className="text-xs">🤔</span>
                   </div>
                 ) : aiMode === 'doctor' ? (
                   <><ArrowLeft size={16} /> МАМА 🇺🇦</>
@@ -355,13 +367,21 @@ export default function AuraHome() {
                 <button
                   onClick={startTranslator}
                   disabled={modeSwitching !== null}
-                  className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 bg-orange-500 border-orange-400 text-white`}
+                  className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 bg-orange-500 border-orange-400 text-white ${
+                    modeSwitching === 'translator' ? 'opacity-70' : ''
+                  }`}
                 >
-                  {modeSwitching === 'stop' ? (
-                    <div className="flex gap-1.5">
-                      <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
-                      <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
-                      <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                  {modeSwitching === 'translator' ? (
+                    <div className="flex items-center gap-2">
+                      <svg width="28" height="28" viewBox="0 0 28 28" className="animate-spin" style={{animationDuration: '3s'}}>
+                        <circle cx="14" cy="6" r="2.5" fill="white" opacity="0.9"/>
+                        <circle cx="20" cy="10" r="2" fill="white" opacity="0.6"/>
+                        <circle cx="20" cy="18" r="1.5" fill="white" opacity="0.4"/>
+                        <circle cx="14" cy="22" r="1.5" fill="white" opacity="0.3"/>
+                        <circle cx="8" cy="18" r="2" fill="white" opacity="0.5"/>
+                        <circle cx="8" cy="10" r="2.5" fill="white" opacity="0.7"/>
+                      </svg>
+                      <span className="text-xs">🤔</span>
                     </div>
                   ) : (
                     <><Languages size={16} /> ПЕРЕКЛАДАЧ 🔄</>
