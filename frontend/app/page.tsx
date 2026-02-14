@@ -464,7 +464,7 @@ export default function AuraHome() {
                   <div className={`px-3 py-1.5 rounded-xl text-xs font-bold text-center ${
                     translatorDraftWho === 'doctor' ? 'bg-blue-900/50 text-blue-300' : 'bg-yellow-900/50 text-yellow-300'
                   }`}>
-                    {translatorDraftWho === 'doctor' ? '🩺 Лікар сказав:' : '👩 Мама сказала:'}
+                    {translatorDraftWho === 'doctor' ? '🩺 Der Arzt sagte:' : '👩 Мама сказала:'}
                   </div>
                   <textarea
                     value={translatorDraft}
@@ -482,7 +482,7 @@ export default function AuraHome() {
                       }`}
                     >
                       <Mic size={20} />
-                      {aiListening ? '...' : '🎙️ ДОПИСАТИ'}
+                      {aiListening ? '...' : translatorDraftWho === 'doctor' ? '🎙️ FORTSETZEN' : '🎙️ ДОПИСАТИ'}
                     </button>
                     <button
                       onClick={() => setTranslatorDraft("")}
@@ -498,7 +498,7 @@ export default function AuraHome() {
                       }`}
                     >
                       <Send size={20} />
-                      НАДІСЛАТИ ➡️
+                      {translatorDraftWho === 'doctor' ? 'SENDEN ➡️' : 'НАДІСЛАТИ ➡️'}
                     </button>
                   </div>
                 </div>
