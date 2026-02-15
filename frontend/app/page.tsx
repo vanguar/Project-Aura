@@ -25,6 +25,7 @@ export default function AuraHome() {
   // Черновик переводчика: текст после голоса, до отправки
   const [translatorDraft, setTranslatorDraft] = useState("");
   const [translatorDraftWho, setTranslatorDraftWho] = useState<'doctor' | 'mama'>('doctor');
+  const [balance, setBalance] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -656,8 +657,24 @@ export default function AuraHome() {
     <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden font-sans">
       <div className="h-[10vh] flex justify-between items-center px-4 bg-slate-900 rounded-3xl border border-slate-800 shadow-lg">
         <h1 className="text-3xl font-black text-blue-500 tracking-tighter uppercase">AURA</h1>
-        <button onClick={saveIp} className="p-3 bg-slate-800 rounded-full border border-slate-700 active:bg-slate-700">
+        <button onClick={() => {
+          saveIp();
+          fetch(`http://${serverIp}:8000/billing/balance`)
+            .then(r => r.json())
+            .then(d => {
+              if (d.balance?.total_available !== undefined) {
+                setBalance(`$${Number(d.balance.total_available).toFixed(2)}`);
+              } else if (d.balance?.hard_limit !== undefined) {
+                setBalance(`Limit: $${d.balance.hard_limit}`);
+              }
+            }).catch(() => {});
+        }} className="p-3 bg-slate-800 rounded-full border border-slate-700 active:bg-slate-700 relative">
           <Settings size={28} />
+          {balance && (
+            <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] text-green-400 font-bold whitespace-nowrap">
+              {balance}
+            </span>
+          )}
         </button>
       </div>
 

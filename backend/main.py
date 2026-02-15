@@ -225,6 +225,55 @@ async def ai_chat_clear():
     return {"status": "cleared"}
 
 # ============================================================
+# ЕНДПОІНТ БАЛАНСУ OpenAI
+# ============================================================
+
+@app.get("/billing/balance")
+async def get_billing_balance():
+    """Отримати баланс OpenAI через Admin API"""
+    admin_key = os.environ.get("OPENAI_ADMIN_KEY", "")
+    if not admin_key:
+        return {"error": "No admin key", "balance": None}
+    try:
+        # Получаем информацию об организации (включая баланс)
+        headers = {"Authorization": f"Bearer {admin_key}"}
+        
+        # Billing: сколько денег на счету
+        r = http_requests.get(
+            "https://api.openai.com/v1/organization/costs?start_time=0&limit=1",
+            headers=headers, timeout=10
+        )
+        
+        # Пробуем через dashboard billing
+        r2 = http_requests.get(
+            "https://api.openai.com/dashboard/billing/credit_grants",
+            headers={"Authorization": f"Bearer {admin_key}"},
+            timeout=10
+        )
+        
+        balance_info = {}
+        if r2.status_code == 200:
+            data = r2.json()
+            balance_info["total_granted"] = data.get("total_granted", 0)
+            balance_info["total_used"] = data.get("total_used", 0)
+            balance_info["total_available"] = data.get("total_available", 0)
+        
+        # Пробуем subscription
+        r3 = http_requests.get(
+            "https://api.openai.com/v1/organization/subscription",
+            headers=headers, timeout=10
+        )
+        if r3.status_code == 200:
+            sub = r3.json()
+            balance_info["hard_limit"] = sub.get("hard_limit_usd", 0)
+            balance_info["soft_limit"] = sub.get("soft_limit_usd", 0)
+        
+        return {"balance": balance_info}
+    except Exception as e:
+        logger.warning(f"Billing error: {e}")
+        return {"error": str(e), "balance": None}
+
+# ============================================================
 # ЕНДПОІНТИ ПЕРЕКЛАДАЧА
 # ============================================================
 
