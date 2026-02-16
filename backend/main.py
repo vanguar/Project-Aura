@@ -254,7 +254,7 @@ async def get_billing_balance():
             for bucket in data.get("data", []):
                 for result in bucket.get("results", []):
                     amount = result.get("amount", {})
-                    total_usd += amount.get("value", 0)
+                    total_usd += float(amount.get("value", 0))
             return {"balance": {"month_used": round(total_usd, 4), "status": r.status_code}}
         else:
             return {"balance": {"api_error": r.status_code, "body": r.text[:200]}}
