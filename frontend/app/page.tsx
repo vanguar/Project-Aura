@@ -40,12 +40,19 @@ export default function AuraHome() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [aiMessages, aiLoading]);
 
-  const saveIp = () => {
+  const saveIp = async () => {
     const ip = prompt("Введіть IP Termux (наприклад, 192.168.1.5):", serverIp);
     if (ip) {
       setServerIp(ip);
       localStorage.setItem('aura_server_ip', ip);
     }
+    try {
+      const r = await fetch(`http://${ip || serverIp}:8000/billing/balance`);
+      const d = await r.json();
+      if (d.balance?.month_used !== undefined) {
+        setBalance(`-$${d.balance.month_used}`);
+      }
+    } catch(e) {}
   };
 
   const openMeds = async () => {
@@ -657,25 +664,14 @@ export default function AuraHome() {
     <main className="h-screen w-full bg-slate-950 text-white p-2 flex flex-col gap-2 overflow-hidden font-sans">
       <div className="h-[10vh] flex justify-between items-center px-4 bg-slate-900 rounded-3xl border border-slate-800 shadow-lg">
         <h1 className="text-3xl font-black text-blue-500 tracking-tighter uppercase">AURA</h1>
-        <button onClick={() => {
-          saveIp();
-          fetch(`http://${serverIp}:8000/billing/balance`)
-            .then(r => r.json())
-            .then(d => {
-              if (d.balance?.total_available !== undefined) {
-                setBalance(`$${Number(d.balance.total_available).toFixed(2)}`);
-              } else if (d.balance?.hard_limit !== undefined) {
-                setBalance(`Limit: $${d.balance.hard_limit}`);
-              }
-            }).catch(() => {});
-        }} className="p-3 bg-slate-800 rounded-full border border-slate-700 active:bg-slate-700 relative">
-          <Settings size={28} />
+        <div className="flex items-center gap-2">
           {balance && (
-            <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] text-green-400 font-bold whitespace-nowrap">
-              {balance}
-            </span>
+            <span className="text-sm text-green-400 font-bold">{balance}</span>
           )}
-        </button>
+          <button onClick={saveIp} className="p-3 bg-slate-800 rounded-full border border-slate-700 active:bg-slate-700">
+            <Settings size={28} />
+          </button>
+        </div>
       </div>
 
       <div className="h-[12vh] bg-blue-900/20 border-l-4 border-blue-600 p-4 rounded-3xl flex flex-col justify-center">
