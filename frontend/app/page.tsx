@@ -37,22 +37,25 @@ export default function AuraHome() {
   }, []);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [aiMessages, aiLoading]);
+    if (serverIp !== "127.0.0.1") fetchBalance();
+  }, [serverIp]);
 
-  const saveIp = async () => {
+  const saveIp = () => {
     const ip = prompt("Введіть IP Termux (наприклад, 192.168.1.5):", serverIp);
     if (ip) {
       setServerIp(ip);
       localStorage.setItem('aura_server_ip', ip);
     }
-    try {
-      const r = await fetch(`http://${ip || serverIp}:8000/billing/balance`);
-      const d = await r.json();
-      if (d.balance?.all_time !== undefined) {
-        setBalance(`Всього: $${d.balance.all_time} | Міс: $${d.balance.month}`);
-      }
-    } catch(e) {}
+  };
+
+  const fetchBalance = () => {
+    fetch(`http://${serverIp}:8000/billing/balance`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.balance?.month !== undefined) {
+          setBalance(`$${d.balance.month}/міс`);
+        }
+      }).catch(() => {});
   };
 
   const openMeds = async () => {

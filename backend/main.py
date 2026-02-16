@@ -239,29 +239,19 @@ async def get_billing_balance():
             "Authorization": f"Bearer {admin_key}",
             "Content-Type": "application/json"
         }
-        
-        def get_costs(start_time, limit=180):
-            r = http_requests.get(
-                f"https://api.openai.com/v1/organization/costs?start_time={start_time}&bucket_width=1d&limit={limit}",
-                headers=headers, timeout=10
-            )
-            if r.status_code != 200:
-                return None
+        start_month = int(time.time()) - (30 * 24 * 60 * 60)
+        r = http_requests.get(
+            f"https://api.openai.com/v1/organization/costs?start_time={start_month}&bucket_width=1d&limit=31",
+            headers=headers, timeout=10
+        )
+        if r.status_code == 200:
             total = 0.0
-            data = r.json()
-            for bucket in data.get("data", []):
+            for bucket in r.json().get("data", []):
                 for result in bucket.get("results", []):
                     total += float(result.get("amount", {}).get("value", 0))
-            return round(total, 4)
-        
-        # За всё время (с 1 января 2024)
-        total_all = get_costs(1704067200)
-        
-        # За последние 30 дней
-        start_month = int(time.time()) - (30 * 24 * 60 * 60)
-        total_month = get_costs(start_month, 31)
-        
-        return {"balance": {"all_time": total_all, "month": total_month}}
+            return {"balance": {"month": round(total, 2)}}
+        else:
+            return {"balance": {"api_error": r.status_code}}
     except Exception as e:
         logger.warning(f"Billing error: {e}")
         return {"error": str(e), "balance": None}
