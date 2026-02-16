@@ -230,45 +230,34 @@ async def ai_chat_clear():
 
 @app.get("/billing/balance")
 async def get_billing_balance():
-    """Отримати баланс OpenAI через Admin API"""
+    """Отримати витрати OpenAI через Admin API"""
     admin_key = os.environ.get("OPENAI_ADMIN_KEY", "")
     if not admin_key:
         return {"error": "No admin key", "balance": None}
     try:
-        # Получаем информацию об организации (включая баланс)
-        headers = {"Authorization": f"Bearer {admin_key}"}
+        headers = {
+            "Authorization": f"Bearer {admin_key}",
+            "Content-Type": "application/json"
+        }
         
-        # Billing: сколько денег на счету
+        # Расходы за последние 30 дней
+        start_time = int(time.time()) - (30 * 24 * 60 * 60)
+        
         r = http_requests.get(
-            "https://api.openai.com/v1/organization/costs?start_time=0&limit=1",
+            f"https://api.openai.com/v1/organization/costs?start_time={start_time}&bucket_width=1d&limit=31",
             headers=headers, timeout=10
         )
         
-        # Пробуем через dashboard billing
-        r2 = http_requests.get(
-            "https://api.openai.com/dashboard/billing/credit_grants",
-            headers={"Authorization": f"Bearer {admin_key}"},
-            timeout=10
-        )
-        
-        balance_info = {}
-        if r2.status_code == 200:
-            data = r2.json()
-            balance_info["total_granted"] = data.get("total_granted", 0)
-            balance_info["total_used"] = data.get("total_used", 0)
-            balance_info["total_available"] = data.get("total_available", 0)
-        
-        # Пробуем subscription
-        r3 = http_requests.get(
-            "https://api.openai.com/v1/organization/subscription",
-            headers=headers, timeout=10
-        )
-        if r3.status_code == 200:
-            sub = r3.json()
-            balance_info["hard_limit"] = sub.get("hard_limit_usd", 0)
-            balance_info["soft_limit"] = sub.get("soft_limit_usd", 0)
-        
-        return {"balance": balance_info}
+        if r.status_code == 200:
+            data = r.json()
+            total_usd = 0.0
+            for bucket in data.get("data", []):
+                for result in bucket.get("results", []):
+                    amount = result.get("amount", {})
+                    total_usd += amount.get("value", 0)
+            return {"balance": {"month_used": round(total_usd, 4), "status": r.status_code}}
+        else:
+            return {"balance": {"api_error": r.status_code, "body": r.text[:200]}}
     except Exception as e:
         logger.warning(f"Billing error: {e}")
         return {"error": str(e), "balance": None}
