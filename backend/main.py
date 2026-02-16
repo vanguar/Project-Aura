@@ -254,8 +254,8 @@ async def get_billing_balance():
                     total += float(result.get("amount", {}).get("value", 0))
             return round(total, 4)
         
-        # За всё время (start_time=0)
-        total_all = get_costs(0)
+        # За всё время (с 1 января 2024)
+        total_all = get_costs(1704067200)
         
         # За последние 30 дней
         start_month = int(time.time()) - (30 * 24 * 60 * 60)
