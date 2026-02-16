@@ -49,8 +49,8 @@ export default function AuraHome() {
     try {
       const r = await fetch(`http://${ip || serverIp}:8000/billing/balance`);
       const d = await r.json();
-      if (d.balance?.month_used !== undefined) {
-        setBalance(`-$${d.balance.month_used}`);
+      if (d.balance?.all_time !== undefined) {
+        setBalance(`Всього: $${d.balance.all_time} | Міс: $${d.balance.month}`);
       }
     } catch(e) {}
   };

@@ -240,24 +240,28 @@ async def get_billing_balance():
             "Content-Type": "application/json"
         }
         
-        # Расходы за последние 30 дней
-        start_time = int(time.time()) - (30 * 24 * 60 * 60)
-        
-        r = http_requests.get(
-            f"https://api.openai.com/v1/organization/costs?start_time={start_time}&bucket_width=1d&limit=31",
-            headers=headers, timeout=10
-        )
-        
-        if r.status_code == 200:
+        def get_costs(start_time, limit=180):
+            r = http_requests.get(
+                f"https://api.openai.com/v1/organization/costs?start_time={start_time}&bucket_width=1d&limit={limit}",
+                headers=headers, timeout=10
+            )
+            if r.status_code != 200:
+                return None
+            total = 0.0
             data = r.json()
-            total_usd = 0.0
             for bucket in data.get("data", []):
                 for result in bucket.get("results", []):
-                    amount = result.get("amount", {})
-                    total_usd += float(amount.get("value", 0))
-            return {"balance": {"month_used": round(total_usd, 4), "status": r.status_code}}
-        else:
-            return {"balance": {"api_error": r.status_code, "body": r.text[:200]}}
+                    total += float(result.get("amount", {}).get("value", 0))
+            return round(total, 4)
+        
+        # За всё время (start_time=0)
+        total_all = get_costs(0)
+        
+        # За последние 30 дней
+        start_month = int(time.time()) - (30 * 24 * 60 * 60)
+        total_month = get_costs(start_month, 31)
+        
+        return {"balance": {"all_time": total_all, "month": total_month}}
     except Exception as e:
         logger.warning(f"Billing error: {e}")
         return {"error": str(e), "balance": None}
