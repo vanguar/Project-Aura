@@ -264,7 +264,13 @@ export default function AuraHome() {
       });
       const data = await res.json();
       const transLabel = who === 'doctor' ? '🇺🇦 Переклад для мами' : '🇩🇪 Übersetzung für den Arzt';
-      setAiMessages(prev => [...prev, { role: 'assistant', content: `${transLabel}: ${data.translation}` }]);
+      // Формуємо повідомлення з AI-перекладом + дослівним
+      let content = `${transLabel}: ${data.translation}`;
+      if (data.literal) {
+        const litLabel = who === 'doctor' ? '┈ дослівно' : '┈ wörtlich';
+        content += `\n${litLabel}: ${data.literal}`;
+      }
+      setAiMessages(prev => [...prev, { role: 'assistant', content }]);
     } catch (e) {
       setAiMessages(prev => [...prev, { role: 'assistant', content: '❌ Помилка перекладу' }]);
     }
@@ -443,7 +449,16 @@ export default function AuraHome() {
                     ? 'bg-blue-600 text-white rounded-br-lg'
                     : 'bg-slate-800 text-slate-100 rounded-bl-lg border border-slate-700'
                 }`}>
-                  {msg.content}
+                  {msg.content.includes('\n┈') ? (
+                    <>
+                      <div>{msg.content.split('\n┈')[0]}</div>
+                      <div className="mt-2 pt-2 border-t border-slate-700/50 text-xs text-slate-400 leading-snug">
+                        ┈{msg.content.split('\n┈')[1]}
+                      </div>
+                    </>
+                  ) : (
+                    msg.content
+                  )}
                 </div>
               )}
             </div>

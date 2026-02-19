@@ -296,6 +296,29 @@ TRANSLATOR_SESSION_REPORT = """Створи звіт про сеанс пере�
 """
 
 # ============================================================
+# ДОСЛІВНИЙ ПЕРЕКЛАД (MyMemory API — безкоштовно)
+# ============================================================
+
+def literal_translate(text: str, from_lang: str, to_lang: str) -> str:
+    """Дослівний переклад через MyMemory API (безкоштовно, без ключа)"""
+    try:
+        r = requests.get(
+            "https://api.mymemory.translated.net/get",
+            params={"q": text[:500], "langpair": f"{from_lang}|{to_lang}"},
+            timeout=5
+        )
+        if r.status_code == 200:
+            data = r.json()
+            translated = data.get("responseData", {}).get("translatedText", "")
+            # MyMemory іноді повертає порожній результат або повтор оригіналу
+            if translated and translated.lower().strip() != text.lower().strip():
+                return translated
+        return ""
+    except Exception as e:
+        logger.warning(f"⚠️ MyMemory помилка: {e}")
+        return ""
+
+# ============================================================
 # ПОШУК НОВИН
 # ============================================================
 
@@ -860,40 +883,48 @@ class AuraAssistant:
         return result_messages
 
     def translate_doctor(self, german_text):
-        """Перекласти слова лікаря (DE → UA) для мами"""
+        """Перекласти слова лікаря (DE → UA) для мами — AI + дослівний"""
         messages = [
             {"role": "system", "content": TRANSLATOR_PROMPT_DE_TO_UA},
             {"role": "user", "content": german_text}
         ]
-        translation = self._call_openai(TRANSLATOR_PROMPT_DE_TO_UA, messages)
+        ai_translation = self._call_openai(TRANSLATOR_PROMPT_DE_TO_UA, messages)
+
+        # Дослівний переклад DE → UK через MyMemory
+        literal = literal_translate(german_text, "de", "uk")
 
         self.translator_messages.append({
             "who": "doctor",
             "original": german_text,
-            "translated": translation,
+            "translated": ai_translation,
+            "literal": literal,
             "timestamp": datetime.now().isoformat()
         })
         self.save_history()
 
-        return translation
+        return {"ai": ai_translation, "literal": literal}
 
     def translate_mama(self, ukrainian_text):
-        """Перекласти слова мами (UA → DE) для лікаря"""
+        """Перекласти слова мами (UA → DE) для лікаря — AI + дослівний"""
         messages = [
             {"role": "system", "content": TRANSLATOR_PROMPT_UA_TO_DE},
             {"role": "user", "content": ukrainian_text}
         ]
-        translation = self._call_openai(TRANSLATOR_PROMPT_UA_TO_DE, messages)
+        ai_translation = self._call_openai(TRANSLATOR_PROMPT_UA_TO_DE, messages)
+
+        # Дослівний переклад UK → DE через MyMemory
+        literal = literal_translate(ukrainian_text, "uk", "de")
 
         self.translator_messages.append({
             "who": "mama",
             "original": ukrainian_text,
-            "translated": translation,
+            "translated": ai_translation,
+            "literal": literal,
             "timestamp": datetime.now().isoformat()
         })
         self.save_history()
 
-        return translation
+        return {"ai": ai_translation, "literal": literal}
 
     def _send_translator_report(self):
         """Відправити звіт про сеанс перекладу в Telegram"""
