@@ -26,6 +26,7 @@ export default function AuraHome() {
   const [translatorDraft, setTranslatorDraft] = useState("");
   const [translatorDraftWho, setTranslatorDraftWho] = useState<'doctor' | 'mama'>('doctor');
   const [balance, setBalance] = useState<string | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -137,22 +138,45 @@ export default function AuraHome() {
 
     const userMsg = text.trim();
     setTextInput("");
+    setPendingMessage(null);
     setAiMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setAiLoading(true);
 
-    try {
-      const res = await fetch(`http://${serverIp}:8000/ai-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg })
-      });
-      const data = await res.json();
-      setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
-      if (data.notified) {
-        setAiMessages(prev => [...prev, { role: 'system', content: '📨 Синові надіслано повідомлення' }]);
+    let success = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`http://${serverIp}:8000/ai-chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: userMsg })
+        });
+        const data = await res.json();
+        setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+        if (data.notified) {
+          setAiMessages(prev => [...prev, { role: 'system', content: '📨 Синові надіслано повідомлення' }]);
+        }
+        success = true;
+        break;
+      } catch (e) {
+        if (attempt < 2) {
+          setAiMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'system' && last?.content.includes('Спроба')) {
+              return [...prev.slice(0, -1), { role: 'system', content: `⏳ Спроба ${attempt + 2}/3...` }];
+            }
+            return [...prev, { role: 'system', content: `⏳ Спроба ${attempt + 2}/3...` }];
+          });
+          await new Promise(r => setTimeout(r, 2000));
+        }
       }
-    } catch (e) {
-      setAiMessages(prev => [...prev, { role: 'assistant', content: '❌ Помилка зв\'язку з сервером' }]);
+    }
+
+    if (!success) {
+      setPendingMessage(userMsg);
+      const errMsg = aiMode === 'doctor'
+        ? '❌ Verbindungsfehler. Ihre Nachricht wurde gespeichert — drücken Sie "Wiederholen".'
+        : '❌ Помилка зв\'язку. Повідомлення збережено — натисніть "Повторити".';
+      setAiMessages(prev => [...prev, { role: 'system', content: errMsg }]);
     }
     setAiLoading(false);
   };
@@ -167,16 +191,59 @@ export default function AuraHome() {
     recognition.lang = aiMode === 'doctor' ? 'de-DE' : 'uk-UA';
     recognition.continuous = false;
 
+    let gotResult = false;
+
     recognition.onstart = () => setAiListening(true);
 
     recognition.onresult = (event: any) => {
+      gotResult = true;
       const text = event.results[0][0].transcript;
-      sendAiMessage(text);
       setAiListening(false);
+      if (text.trim()) {
+        sendAiMessage(text);
+      } else {
+        const msg = aiMode === 'doctor' 
+          ? '⚠️ Sprache nicht erkannt. Bitte versuchen Sie es erneut.'
+          : '⚠️ Не вдалося розпізнати. Спробуйте ще раз.';
+        setAiMessages(prev => [...prev, { role: 'system', content: msg }]);
+      }
     };
 
-    recognition.onerror = () => setAiListening(false);
-    recognition.onend = () => setAiListening(false);
+    recognition.onerror = (event: any) => {
+      gotResult = true;
+      setAiListening(false);
+      const errorType = event?.error || 'unknown';
+      let msg = '';
+      if (errorType === 'network') {
+        msg = aiMode === 'doctor'
+          ? '⚠️ Kein Internet. Bitte prüfen Sie die Verbindung.'
+          : '⚠️ Немає інтернету. Перевірте з\'єднання.';
+      } else if (errorType === 'not-allowed' || errorType === 'service-not-allowed') {
+        msg = aiMode === 'doctor'
+          ? '⚠️ Mikrofon nicht erlaubt. Bitte Berechtigung erteilen.'
+          : '⚠️ Мікрофон заблоковано. Дозвольте доступ.';
+      } else if (errorType === 'no-speech') {
+        msg = aiMode === 'doctor'
+          ? '⚠️ Keine Sprache erkannt. Bitte sprechen Sie lauter.'
+          : '⚠️ Не почула голос. Говоріть голосніше.';
+      } else {
+        msg = aiMode === 'doctor'
+          ? `⚠️ Fehler: ${errorType}. Bitte erneut versuchen.`
+          : `⚠️ Помилка: ${errorType}. Спробуйте ще раз.`;
+      }
+      setAiMessages(prev => [...prev, { role: 'system', content: msg }]);
+    };
+
+    recognition.onend = () => {
+      setAiListening(false);
+      if (!gotResult) {
+        const msg = aiMode === 'doctor'
+          ? '⚠️ Keine Sprache erkannt. Bitte erneut versuchen.'
+          : '⚠️ Не вдалося розпізнати мову. Спробуйте ще раз.';
+        setAiMessages(prev => [...prev, { role: 'system', content: msg }]);
+      }
+    };
+
     recognition.start();
   };
 
@@ -586,6 +653,15 @@ export default function AuraHome() {
           ) : (
             /* NORMAL / DOCTOR: Standard input */
             <>
+              {pendingMessage && (
+                <button
+                  onClick={() => sendAiMessage(pendingMessage)}
+                  disabled={aiLoading}
+                  className="w-full mb-2 py-3 bg-orange-600 rounded-2xl border-2 border-orange-400 text-lg font-black flex items-center justify-center gap-2 active:scale-95 animate-pulse"
+                >
+                  🔄 {aiMode === 'doctor' ? 'WIEDERHOLEN' : 'ПОВТОРИТИ'}
+                </button>
+              )}
               <div className="flex gap-2 mb-2">
                 <input
                   type="text"
