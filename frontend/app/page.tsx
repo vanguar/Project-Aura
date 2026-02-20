@@ -743,7 +743,7 @@ export default function AuraHome() {
           className="mt-4 w-full py-5 bg-green-600 hover:bg-green-700 text-white rounded-2xl border-4 border-green-400 flex items-center justify-center gap-3 text-xl font-black uppercase active:scale-95 shadow-xl"
         >
           <Stethoscope size={32} />
-          Mit KI sprechen
+          Mit KI sprechen 🎙️
         </button>
       </main>
     );
