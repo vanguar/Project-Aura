@@ -242,7 +242,15 @@ async def ai_chat(body: ChatMessage):
 @app.post("/ai-chat/doctor-mode")
 async def ai_doctor_mode():
     """Переключити на режим лікаря (німецька)"""
+    # Запам'ятовуємо чи є relay ДО переключення
+    had_relay = ai_bot.relay_active and ai_bot.pending_relay and ai_bot.pending_relay.get("from") == "mama"
     ai_bot.set_doctor_mode()
+    if had_relay:
+        # Повернення з relay — relay-відповідь вже в messages
+        return {
+            "status": "doctor_mode_relay",
+            "message": "Die Antwort der Patientin wurde übermittelt."
+        }
     return {
         "status": "doctor_mode",
         "message": "Arztmodus aktiviert. Ich kenne die vollständige Krankengeschichte der Patientin und kann Ihnen alle Informationen bereitstellen."
@@ -267,6 +275,40 @@ async def ai_chat_clear():
     """Очистити історію діалогу"""
     ai_bot.clear_history()
     return {"status": "cleared"}
+
+@app.post("/ai-chat/finish-relay")
+async def ai_finish_relay():
+    """Завершити relay: зібрати відповідь мами, резюмувати, переключити на лікаря"""
+    result = ai_bot.finish_relay()
+    if result["status"] == "ok":
+        # Озвучити relay-повідомлення для лікаря
+        try:
+            threading.Thread(
+                target=speak_openai_tts, args=(result["message"],), daemon=True
+            ).start()
+        except Exception as e:
+            logger.warning(f"TTS помилка: {e}")
+    return result
+
+@app.post("/ai-chat/end-visit")
+async def ai_end_visit():
+    """Завершити візит лікаря: фінальний звіт, очищення"""
+    result = ai_bot.end_visit()
+    if result["status"] == "ok" and result.get("message"):
+        # Озвучити резюме для мами
+        try:
+            threading.Thread(
+                target=speak_openai_tts, args=(result["message"],), daemon=True
+            ).start()
+        except Exception as e:
+            logger.warning(f"TTS помилка: {e}")
+    return result
+
+@app.get("/ai-chat/check-relay-timeout")
+async def ai_check_relay_timeout():
+    """Перевірити чи не минув таймаут relay (20 хв)"""
+    timeout = ai_bot.check_relay_timeout()
+    return {"timeout": timeout}
 
 # ============================================================
 # ЕНДПОІНТ БАЛАНСУ OpenAI

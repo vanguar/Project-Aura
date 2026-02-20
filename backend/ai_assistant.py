@@ -162,11 +162,8 @@ SYSTEM_PROMPT_NORMAL = f"""Ти — АУРА, персональний AI-пом
 Після маркера в дужках вкажи короткий опис ситуації для сина Українською, наприклад:
 [NOTIFY_SON](Мама жаліється на сильний біль у грудях, прошу перевірити)
 
-ПЕРЕДАЧА ВІДПОВІДІ ЛІКАРЮ:
-Якщо мама відповідає на питання, яке передав лікар (воно з'явиться на початку розмови), і відповідь важлива — додай маркер:
-[RELAY_TO_DOCTOR](Коротка відповідь мами перекладена на німецьку для лікаря)
-Після цього скажи мамі: "Дякую! Тепер попросіть лікаря натиснути кнопку 'ЛІКАР 🇩🇪', щоб він побачив вашу відповідь."
-Якщо мама просто розмовляє і лікар нічого не питав — НЕ використовуй цей маркер.
+ПИТАННЯ ВІД ЛІКАРЯ:
+Якщо на початку розмови є питання від лікаря — задай його мамі ПРОСТО і ЧІТКО, як рідна людина. Переконайся, що мама зрозуміла і відповіла. Якщо мама відповідає незрозуміло — перепитай м'яко.
 
 МЕДИЧНА КАРТКА:
 {PATIENT_CONTEXT}
@@ -258,6 +255,15 @@ SUMMARIZE_PROMPT_FINAL_REPORT = """Створи СТИСЛИЙ ЗВІТ НА У�
 Діалог з лікарем:
 {doctor_dialog}
 """
+
+SUMMARIZE_RELAY_TO_DOCTOR = """Die Patientin (77 Jahre, Parkinson) hat auf eine Frage des Arztes geantwortet.
+Hier ist der Dialog mit ihr seit der Frage:
+
+{dialog}
+
+Fasse die Antwort der Patientin in 1-3 Sätzen auf DEUTSCH zusammen.
+Nur medizinisch relevante Informationen. Füge NICHTS hinzu, was die Patientin NICHT gesagt hat.
+Wenn die Patientin die Frage nicht verstanden hat oder keine klare Antwort gab — sage das ehrlich."""
 
 # ============================================================
 # ПРОМПТ ПЕРЕКЛАДАЧА
@@ -381,6 +387,9 @@ class AuraAssistant:
         self.translator_active = False
         # Relay: передача питання між режимами (лікар ↔ мама)
         self.pending_relay = None  # {"from": "doctor"/"mama", "question": str, "context": str}
+        # Relay: стан активного relay-сеансу
+        self.relay_active = False  # True коли мама відповідає на питання лікаря
+        self.relay_started_at = None  # ISO timestamp початку relay
         # Timestamps для автоочищення резюме
         self.mama_summary_timestamp = None
         self.doctor_summary_timestamp = None
@@ -403,6 +412,8 @@ class AuraAssistant:
                     self.translator_messages = data.get("translator_messages", [])
                     self.translator_active = data.get("translator_active", False)
                     self.pending_relay = data.get("pending_relay", None)
+                    self.relay_active = data.get("relay_active", False)
+                    self.relay_started_at = data.get("relay_started_at", None)
                     self.mama_summary_timestamp = data.get("mama_summary_timestamp", None)
                     self.doctor_summary_timestamp = data.get("doctor_summary_timestamp", None)
                     logger.info(f"📂 Історію завантажено: {len(self.messages)} повідомлень, режим: {self.mode}")
@@ -427,6 +438,8 @@ class AuraAssistant:
                 "translator_messages": self.translator_messages,
                 "translator_active": self.translator_active,
                 "pending_relay": self.pending_relay,
+                "relay_active": self.relay_active,
+                "relay_started_at": self.relay_started_at,
                 "mama_summary_timestamp": getattr(self, 'mama_summary_timestamp', None),
                 "doctor_summary_timestamp": getattr(self, 'doctor_summary_timestamp', None)
             }
@@ -601,8 +614,10 @@ class AuraAssistant:
         if self.mode == "normal" and self.messages:
             self.mama_messages = list(self.messages)
 
-        # Генеруємо резюме розмови з мамою для лікаря
-        if self.mama_messages:
+        is_relay_return = self.relay_active and self.pending_relay and self.pending_relay.get("from") == "mama"
+
+        # Генеруємо резюме мами для лікаря (тільки при ПЕРШОМУ вході, не при relay-поверненні)
+        if not is_relay_return and self.mama_messages:
             mama_dialog = self._format_dialog(self.mama_messages, mode="normal")
             self.mama_summary_for_doctor = self._generate_summary(
                 SUMMARIZE_PROMPT_MAMA_TO_DOCTOR, mama_dialog
@@ -611,21 +626,10 @@ class AuraAssistant:
             self.mama_summary_timestamp = datetime.now().isoformat()
 
         self.mode = "doctor"
-        self.messages = []
-        self.doctor_messages = []
-        self.doctor_session_active = True
-        self.save_history()
 
-        # Сповіщення сина
-        self._send_telegram(
-            "⚕️ *ВІЗИТ ЛІКАРЯ*\n"
-            "Лікар прийшов. AURA переключена в режим лікаря (DE).\n"
-            "Усі відповіді будуть надсилатися вам."
-        )
-        logger.info("🩺 Режим лікаря УВІМКНЕНО")
-
-        # Якщо є relay-відповідь від мами для лікаря
-        if self.pending_relay and self.pending_relay.get("from") == "mama":
+        if is_relay_return:
+            # Повернення з relay — відновлюємо розмову лікаря + додаємо відповідь мами
+            self.messages = list(self.doctor_messages)
             relay_msg = self.pending_relay["question"]
             self.messages.append({
                 "role": "assistant",
@@ -634,38 +638,36 @@ class AuraAssistant:
             })
             self._send_telegram(f"📨 *RELAY мама→лікар:*\n{relay_msg}")
             self.pending_relay = None
-            self.save_history()
+            self.relay_active = False
+            self.relay_started_at = None
+            logger.info("🩺 Режим лікаря УВІМКНЕНО (повернення з relay)")
+        else:
+            # Перший вхід — новий сеанс лікаря
+            self.messages = []
+            self.doctor_messages = []
+            self.doctor_session_active = True
+            self._send_telegram(
+                "⚕️ *ВІЗИТ ЛІКАРЯ*\n"
+                "Лікар прийшов. AURA переключена в режим лікаря (DE).\n"
+                "Усі відповіді будуть надсилатися вам."
+            )
+            logger.info("🩺 Режим лікаря УВІМКНЕНО (новий візит)")
+
+        self.save_history()
 
     def set_normal_mode(self):
-        """Повернути звичайний режим (українська) + фінальний звіт"""
+        """Легке переключення на режим мами (візит НЕ завершується)"""
         # Зберігаємо розмову лікаря
         if self.mode == "doctor" and self.messages:
             self.doctor_messages = list(self.messages)
 
-        # Генеруємо резюме розмови лікаря для мами
-        doctor_summary = ""
-        if self.doctor_messages:
-            doctor_dialog = self._format_dialog(self.doctor_messages, mode="doctor")
-            doctor_summary = self._generate_summary(
-                SUMMARIZE_PROMPT_DOCTOR_TO_MAMA, doctor_dialog
-            )
-            self.doctor_summary_for_mama = doctor_summary
-            logger.info(f"📝 Резюме лікаря для мами: {len(doctor_summary)} символів")
-            self.doctor_summary_timestamp = datetime.now().isoformat()
-
-        # === ФІНАЛЬНИЙ ЗВІТ В TELEGRAM ===
-        if self.doctor_session_active and (self.mama_messages or self.doctor_messages):
-            self._send_final_report()
-
         self.mode = "normal"
-        # Відновлюємо розмову з мамою (продовжуємо)
         self.messages = list(self.mama_messages)
-        self.doctor_session_active = False
         self.save_history()
 
-        logger.info("🏠 Звичайний режим УВІМКНЕНО")
+        logger.info("🏠 Звичайний режим УВІМКНЕНО (легке переключення)")
 
-        # Якщо є relay-питання від лікаря для мами
+        # Якщо є relay-питання від лікаря для мами — показуємо
         if self.pending_relay and self.pending_relay.get("from") == "doctor":
             relay_msg = self.pending_relay["question"]
             self.messages.append({
@@ -674,13 +676,116 @@ class AuraAssistant:
                 "timestamp": datetime.now().isoformat()
             })
             self._send_telegram(f"📨 *RELAY лікар→мама:*\n{relay_msg}")
-            self.pending_relay = None
+            # НЕ очищуємо pending_relay — потрібен для finish_relay
             self.save_history()
+            return relay_msg
 
-        # Повертаємо резюме лікаря для показу мамі
-        if doctor_summary:
-            return doctor_summary
         return "Звичайний режим увімкнено."
+
+    def finish_relay(self):
+        """Завершити relay: зібрати відповіді мами, резюмувати для лікаря, переключити на лікаря"""
+        if not self.relay_active:
+            return {"status": "no_relay", "message": "Немає активного relay"}
+
+        # Збираємо повідомлення мами з моменту relay-питання
+        relay_messages = []
+        found_relay_question = False
+        relay_q = self.pending_relay.get("question", "") if self.pending_relay else ""
+        for msg in self.messages:
+            if not found_relay_question:
+                if msg["role"] == "assistant" and relay_q and relay_q in msg.get("content", ""):
+                    found_relay_question = True
+                continue
+            relay_messages.append(msg)
+
+        # Якщо не знайшли relay-питання — беремо останні повідомлення
+        if not relay_messages:
+            relay_messages = self.messages[-6:] if self.messages else []
+
+        # Резюмуємо відповідь мами на німецькій
+        if relay_messages:
+            dialog = self._format_dialog(relay_messages, mode="normal")
+            summary = self._generate_summary(
+                SUMMARIZE_RELAY_TO_DOCTOR.format(dialog=dialog), ""
+            )
+        else:
+            summary = "Die Patientin hat keine klare Antwort gegeben."
+
+        logger.info(f"📝 Relay резюме мами→лікарю: {summary[:100]}")
+
+        # Зберігаємо relay для лікаря
+        self.pending_relay = {
+            "from": "mama",
+            "question": summary,
+            "context": "relay_finish"
+        }
+
+        # Зберігаємо мамині повідомлення
+        self.mama_messages = list(self.messages)
+        self.save_history()
+
+        # Переключаємо на лікаря (set_doctor_mode побачить relay і зробить injection)
+        self.set_doctor_mode()
+
+        return {
+            "status": "ok",
+            "message": f"Antwort der Patientin auf Ihre Frage: {summary}",
+            "mode": "doctor"
+        }
+
+    def end_visit(self):
+        """Завершити візит лікаря: фінальний звіт, очищення, повернення в нормальний режим"""
+        # Зберігаємо поточні повідомлення
+        if self.mode == "doctor" and self.messages:
+            self.doctor_messages = list(self.messages)
+        elif self.mode == "normal" and self.messages:
+            self.mama_messages = list(self.messages)
+
+        # Генеруємо резюме лікаря для мами
+        doctor_summary = ""
+        if self.doctor_messages:
+            doctor_dialog = self._format_dialog(self.doctor_messages, mode="doctor")
+            doctor_summary = self._generate_summary(
+                SUMMARIZE_PROMPT_DOCTOR_TO_MAMA, doctor_dialog
+            )
+            self.doctor_summary_for_mama = doctor_summary
+            self.doctor_summary_timestamp = datetime.now().isoformat()
+            logger.info(f"📝 Резюме лікаря для мами: {len(doctor_summary)} символів")
+
+        # === ФІНАЛЬНИЙ ЗВІТ В TELEGRAM ===
+        if self.doctor_session_active and (self.mama_messages or self.doctor_messages):
+            self._send_final_report()
+
+        # Очищуємо стан візиту
+        self.mode = "normal"
+        self.messages = list(self.mama_messages)
+        self.doctor_session_active = False
+        self.relay_active = False
+        self.relay_started_at = None
+        self.pending_relay = None
+        self.save_history()
+
+        logger.info("✅ Візит лікаря ЗАВЕРШЕНО")
+
+        return {
+            "status": "ok",
+            "message": doctor_summary if doctor_summary else "Візит лікаря завершено.",
+            "mode": "normal"
+        }
+
+    def check_relay_timeout(self, timeout_minutes=20):
+        """Перевірити чи не минув таймаут relay (для автозавершення)"""
+        if not self.relay_active or not self.relay_started_at:
+            return False
+        try:
+            started = datetime.fromisoformat(self.relay_started_at)
+            elapsed = (datetime.now() - started).total_seconds() / 60
+            if elapsed >= timeout_minutes:
+                logger.warning(f"⏰ Relay таймаут: {elapsed:.0f} хв (ліміт {timeout_minutes})")
+                return True
+        except Exception:
+            pass
+        return False
 
     def _send_final_report(self):
         """Відправити фінальний звіт сину в Telegram"""
@@ -802,21 +907,11 @@ class AuraAssistant:
                     "question": relay_match.group(1),
                     "context": user_message[:300]
                 }
+                self.relay_active = True
+                self.relay_started_at = datetime.now().isoformat()
                 self.save_history()
                 logger.info(f"📨 Relay doctor→mama: {relay_match.group(1)[:100]}")
             clean_reply = re.sub(r'\[RELAY_TO_MAMA\]\(.*?\)', '', clean_reply).strip()
-
-        if "[RELAY_TO_DOCTOR]" in clean_reply:
-            relay_match = re.search(r'\[RELAY_TO_DOCTOR\]\((.+?)\)', clean_reply)
-            if relay_match:
-                self.pending_relay = {
-                    "from": "mama",
-                    "question": relay_match.group(1),
-                    "context": user_message[:300]
-                }
-                self.save_history()
-                logger.info(f"📨 Relay mama→doctor: {relay_match.group(1)[:100]}")
-            clean_reply = re.sub(r'\[RELAY_TO_DOCTOR\]\(.*?\)', '', clean_reply).strip()
 
         # Зберігаємо відповідь (використовуємо "assistant" для OpenAI сумісності)
         self.messages.append({
@@ -829,7 +924,9 @@ class AuraAssistant:
         return {
             "reply": clean_reply,
             "notified": notified,
-            "mode": self.mode
+            "mode": self.mode,
+            "relay_active": self.relay_active,
+            "doctor_session_active": self.doctor_session_active
         }
 
     # --- OpenAI API ---
@@ -1082,6 +1179,7 @@ class AuraAssistant:
             "has_doctor_context": len(self.doctor_messages) > 0,
             "doctor_session_active": self.doctor_session_active,
             "translator_active": self.translator_active,
+            "relay_active": self.relay_active,
             "messages": [
                 {
                     "role": m["role"],
@@ -1103,6 +1201,8 @@ class AuraAssistant:
         self.translator_messages = []
         self.translator_active = False
         self.pending_relay = None
+        self.relay_active = False
+        self.relay_started_at = None
         self.mama_summary_timestamp = None
         self.doctor_summary_timestamp = None
         self.mode = "normal"
