@@ -38,54 +38,98 @@ app.add_middleware(
 )
 
 def speak_openai_tts(text):
-    """Озвучити текст через OpenAI TTS API з retry при 401"""
+    """Озвучити текст через OpenAI TTS API з підтримкою довгих текстів"""
     api_key = os.environ.get("OPENAI_API_KEY", OPENAI_API_KEY)
+    
+    # Розбиваємо на чанки по ~3500 символів (по реченнях)
+    chunks = split_text_for_tts(text)
+    
+    for chunk in chunks:
+        success = False
+        for attempt in range(3):
+            try:
+                response = http_requests.post(
+                    "https://api.openai.com/v1/audio/speech",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "tts-1",
+                        "input": chunk,
+                        "voice": "nova",
+                        "response_format": "mp3"
+                    },
+                    timeout=60
+                )
 
-    for attempt in range(3):
-        try:
-            response = http_requests.post(
-                "https://api.openai.com/v1/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "tts-1",
-                    "input": text,
-                    "voice": "nova",
-                    "response_format": "mp3"
-                },
-                timeout=30
-            )
+                if response.status_code == 200:
+                    with open(TTS_AUDIO_FILE, "wb") as f:
+                        f.write(response.content)
+                    # play і ЧЕКАТИ завершення перед наступним чанком
+                    subprocess.run(['termux-media-player', 'play', TTS_AUDIO_FILE],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # Чекаємо приблизну тривалість аудіо
+                    wait_for_playback(len(chunk))
+                    success = True
+                    break
+                elif response.status_code in (401, 403, 429):
+                    logger.warning(f"TTS {response.status_code} (спроба {attempt+1}/3)")
+                    api_key = os.environ.get("OPENAI_API_KEY", OPENAI_API_KEY)
+                    time.sleep(3)
+                    continue
+                else:
+                    response.raise_for_status()
 
-            if response.status_code == 200:
-                with open(TTS_AUDIO_FILE, "wb") as f:
-                    f.write(response.content)
-                subprocess.run(['termux-media-player', 'play', TTS_AUDIO_FILE],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return
-            elif response.status_code in (401, 403, 429):
-                logger.warning(f"TTS {response.status_code} (спроба {attempt+1}/3)")
-                api_key = os.environ.get("OPENAI_API_KEY", OPENAI_API_KEY)
-                time.sleep(3)
-                continue
-            else:
-                response.raise_for_status()
+            except Exception as e:
+                logger.warning(f"TTS помилка (спроба {attempt+1}/3): {e}")
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
 
-        except Exception as e:
-            logger.warning(f"TTS помилка (спроба {attempt+1}/3): {e}")
-            if attempt < 2:
-                time.sleep(2)
-                continue
+        if not success:
+            # Fallback на termux-tts для этого чанка
+            try:
+                subprocess.run(
+                    ['termux-tts-speak', '-l', 'uk-UA', '-r', '0.85', chunk],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+            except:
+                pass
 
-    # Fallback
-    try:
-        subprocess.Popen(
-            ['termux-tts-speak', '-l', 'uk-UA', '-r', '0.85', text[:300]],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-    except:
-        pass
+
+def split_text_for_tts(text, max_len=3500):
+    """Розбити текст на чанки по реченнях, не більше max_len символів"""
+    if len(text) <= max_len:
+        return [text]
+    
+    chunks = []
+    current = ""
+    
+    # Розбиваємо по реченнях (., !, ?, \n)
+    import re
+    sentences = re.split(r'(?<=[.!?\n])\s+', text)
+    
+    for sentence in sentences:
+        if len(current) + len(sentence) + 1 <= max_len:
+            current = (current + " " + sentence).strip()
+        else:
+            if current:
+                chunks.append(current)
+            # Якщо одне речення довше max_len — обрізаємо
+            current = sentence[:max_len]
+    
+    if current:
+        chunks.append(current)
+    
+    return chunks if chunks else [text[:max_len]]
+
+
+def wait_for_playback(char_count):
+    """Приблизне очікування завершення відтворення"""
+    # ~150 символів/сек для TTS
+    estimated_seconds = max(char_count / 150, 2)
+    time.sleep(estimated_seconds)
 
 # --- ГЛОБАЛЬНІ ЗМІННІ ДЛЯ ЛІКІВ ---
 reminders_enabled = False
@@ -186,7 +230,7 @@ async def ai_chat(body: ChatMessage):
     
     # Озвучення відповіді через OpenAI TTS
     try:
-        tts_text = result["reply"][:1500]
+        tts_text = result["reply"]
         threading.Thread(
             target=speak_openai_tts, args=(tts_text,), daemon=True
         ).start()
