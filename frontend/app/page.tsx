@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff, Bot, Stethoscope, Mic, MicOff, Trash2, Send, Languages } from 'lucide-react';
 
 export default function AuraHome() {
-  const [view, setView] = useState<'home' | 'meds' | 'ai'>('home');
+  const [view, setView] = useState<'home' | 'meds' | 'ai' | 'arzt_info'>('home');
   const [isListening, setIsListening] = useState(false);
   const [activeMode, setActiveMode] = useState<'movie' | 'youtube' | null>(null);
   const [statusText, setStatusText] = useState("AURA готова");
@@ -676,6 +676,80 @@ export default function AuraHome() {
   }
 
   // ============================================================
+  // ARZT INFO VIEW (Для немецкого врача)
+  // ============================================================
+  if (view === 'arzt_info') {
+    return (
+      <main className="h-screen w-full bg-white text-gray-900 p-4 flex flex-col overflow-hidden font-sans">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={() => setView('home')} className="p-2 bg-gray-100 rounded-full">
+            <ArrowLeft size={28} className="text-gray-700" />
+          </button>
+          <div>
+            <h1 className="text-2xl font-black text-blue-700">AURA</h1>
+            <p className="text-sm text-gray-500">KI-Gesundheitsassistent</p>
+          </div>
+        </div>
+
+        {/* Инструкция */}
+        <div className="flex-1 overflow-y-auto space-y-4">
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-5">
+            <h2 className="text-xl font-black text-blue-800 mb-3">ℹ️ Was ist AURA?</h2>
+            <p className="text-base leading-relaxed">
+              AURA ist ein <strong>KI-gestützter Gesundheitsassistent</strong> für die Patientin 
+              <strong> Halyna Ivanivna</strong>. Das System kennt ihre vollständige Krankengeschichte, 
+              Medikamente, Diagnosen und Behandlungsverläufe.
+            </p>
+          </div>
+
+          <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-5">
+            <h2 className="text-xl font-black text-green-800 mb-3">🩺 Für Ärzte & Rettungsdienst</h2>
+            <p className="text-base leading-relaxed mb-3">
+              Sie können mit dem KI-Assistenten <strong>auf Deutsch sprechen</strong>. 
+              Er beantwortet Ihre Fragen zur Krankengeschichte der Patientin:
+            </p>
+            <ul className="space-y-2 text-base">
+              <li className="flex items-start gap-2">
+                <span className="text-green-600 font-bold mt-0.5">1.</span>
+                <span>Drücken Sie unten die Taste <strong>„Mit KI sprechen"</strong></span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-green-600 font-bold mt-0.5">2.</span>
+                <span>Drücken Sie die <strong>Mikrofon-Taste 🎙️</strong> und stellen Sie Ihre Frage auf Deutsch</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-green-600 font-bold mt-0.5">3.</span>
+                <span>Der Assistent antwortet auf Deutsch mit allen relevanten medizinischen Informationen</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-5">
+            <h2 className="text-lg font-black text-amber-800 mb-2">⚠️ Hinweis</h2>
+            <p className="text-sm leading-relaxed text-amber-900">
+              Die KI ersetzt keine ärztliche Diagnose. Alle Angaben basieren auf den vom Patienten 
+              hinterlegten Daten und dienen der schnellen Informationsübermittlung bei Sprachbarrieren.
+            </p>
+          </div>
+        </div>
+
+        {/* Кнопка — войти в режим врача */}
+        <button
+          onClick={async () => {
+            await openAiChat();
+            await toggleDoctorMode();
+          }}
+          className="mt-4 w-full py-5 bg-green-600 hover:bg-green-700 text-white rounded-2xl border-4 border-green-400 flex items-center justify-center gap-3 text-xl font-black uppercase active:scale-95 shadow-xl"
+        >
+          <Stethoscope size={32} />
+          Mit KI sprechen
+        </button>
+      </main>
+    );
+  }
+
+  // ============================================================
   // HOME VIEW
   // ============================================================
   return (
@@ -723,6 +797,14 @@ export default function AuraHome() {
             <span className="text-xs font-bold opacity-70 uppercase">помічник</span>
           </button>
         </div>
+
+        <button 
+          onClick={() => setView('arzt_info')}
+          className="flex-1 rounded-[30px] border-4 flex items-center justify-center gap-3 active:scale-95 shadow-lg bg-white border-blue-300"
+        >
+          <Stethoscope size={32} className="text-blue-700" />
+          <span className="text-xl font-black uppercase text-blue-800">Für den Arzt 🇩🇪</span>
+        </button>
 
         <button 
           onClick={() => startVoice('youtube')}
