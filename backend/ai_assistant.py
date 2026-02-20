@@ -22,7 +22,7 @@ BOT_TOKEN = os.environ.get("AURA_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 SON_CHAT_ID = os.environ.get("AURA_SON_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
 
 # Модель OpenAI
-OPENAI_MODEL = "gpt-4o-mini"
+OPENAI_MODEL = "gpt-4o"
 
 # Шлях до файлу історії діалогу
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat_history.json")
