@@ -162,6 +162,12 @@ SYSTEM_PROMPT_NORMAL = f"""Ти — АУРА, персональний AI-пом
 Після маркера в дужках вкажи короткий опис ситуації для сина Українською, наприклад:
 [NOTIFY_SON](Мама жаліється на сильний біль у грудях, прошу перевірити)
 
+ПЕРЕДАЧА ВІДПОВІДІ ЛІКАРЮ:
+Якщо мама відповідає на питання, яке передав лікар (воно з'явиться на початку розмови), і відповідь важлива — додай маркер:
+[RELAY_TO_DOCTOR](Коротка відповідь мами перекладена на німецьку для лікаря)
+Після цього скажи мамі: "Дякую! Тепер попросіть лікаря натиснути кнопку 'ЛІКАР 🇩🇪', щоб він побачив вашу відповідь."
+Якщо мама просто розмовляє і лікар нічого не питав — НЕ використовуй цей маркер.
+
 МЕДИЧНА КАРТКА:
 {PATIENT_CONTEXT}
 
@@ -183,6 +189,15 @@ DEINE ROLLE:
 - Zum Beispiel: Wenn der Arzt fragt, ob die Patientin ihre Medikamente nimmt, könntest du antworten: "Ja, Halyna nimmt ihre Medikamente brav — sie ist eine vorbildliche Patientin."
 - KEIN Humor bei ernsten Diagnosen, Komplikationen oder schlechten Nachrichten. Im Zweifel: sachlich bleiben.
 - Maximal 1 solche Bemerkung pro Gespräch.
+
+WEITERLEITUNG AN DIE PATIENTIN:
+Wenn der Arzt möchte, dass du die Patientin etwas fragst (z.B. "fragen Sie sie...", "können Sie bei ihr nachfragen...", "ich brauche eine Antwort von der Patientin..."), dann:
+1. Bestätige dem Arzt, dass du die Frage weiterleiten wirst
+2. Füge am Ende deiner Antwort den Marker hinzu: [RELAY_TO_MAMA](Klare, einfache Frage auf Ukrainisch für die 77-jährige Patientin)
+3. Sage dem Arzt, er soll den Modus wechseln (Taste "МАМА 🇺🇦" drücken)
+Beispiel: Arzt sagt "Fragen Sie die Patientin, ob sie gestern gestürzt ist"
+→ Deine Antwort: "Ich werde die Patientin fragen. Bitte drücken Sie die Taste 'МАМА 🇺🇦', um zum Patientenmodus zu wechseln."
+→ Marker: [RELAY_TO_MAMA](Галино Іванівно, лікар питає: ви вчора падали?)
 
 SPRACHE: Antworte immer auf DEUTSCH. Verwende medizinische Fachterminologie.
 
@@ -364,6 +379,11 @@ class AuraAssistant:
         # Режим перекладача
         self.translator_messages = []  # історія перекладу [{who: "doctor"/"mama", original: str, translated: str}]
         self.translator_active = False
+        # Relay: передача питання між режимами (лікар ↔ мама)
+        self.pending_relay = None  # {"from": "doctor"/"mama", "question": str, "context": str}
+        # Timestamps для автоочищення резюме
+        self.mama_summary_timestamp = None
+        self.doctor_summary_timestamp = None
         self.load_history()
 
     # --- Завантаження та збереження історії ---
@@ -382,6 +402,9 @@ class AuraAssistant:
                     self.doctor_session_active = data.get("doctor_session_active", False)
                     self.translator_messages = data.get("translator_messages", [])
                     self.translator_active = data.get("translator_active", False)
+                    self.pending_relay = data.get("pending_relay", None)
+                    self.mama_summary_timestamp = data.get("mama_summary_timestamp", None)
+                    self.doctor_summary_timestamp = data.get("doctor_summary_timestamp", None)
                     logger.info(f"📂 Історію завантажено: {len(self.messages)} повідомлень, режим: {self.mode}")
             else:
                 logger.info("📂 Файл історії не знайдено, починаємо з нуля")
@@ -402,12 +425,29 @@ class AuraAssistant:
                 "doctor_summary_for_mama": self.doctor_summary_for_mama,
                 "doctor_session_active": self.doctor_session_active,
                 "translator_messages": self.translator_messages,
-                "translator_active": self.translator_active
+                "translator_active": self.translator_active,
+                "pending_relay": self.pending_relay,
+                "mama_summary_timestamp": getattr(self, 'mama_summary_timestamp', None),
+                "doctor_summary_timestamp": getattr(self, 'doctor_summary_timestamp', None)
             }
             with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"❌ Помилка збереження історії: {e}")
+
+    # --- Перевірка актуальності резюме ---
+    def _is_summary_fresh(self, summary_type="doctor", max_hours=24):
+        """Перевірити чи резюме ще актуальне (не старше max_hours годин)"""
+        try:
+            timestamp_key = f"{summary_type}_summary_timestamp"
+            ts = getattr(self, timestamp_key, None)
+            if not ts:
+                return False
+            created = datetime.fromisoformat(ts)
+            age_hours = (datetime.now() - created).total_seconds() / 3600
+            return age_hours < max_hours
+        except Exception:
+            return True  # Якщо помилка — показуємо на всяк випадок
 
     # --- Форматування діалогу ---
     def _format_dialog(self, messages, mode="normal"):
@@ -568,6 +608,7 @@ class AuraAssistant:
                 SUMMARIZE_PROMPT_MAMA_TO_DOCTOR, mama_dialog
             )
             logger.info(f"📝 Резюме мами для лікаря: {len(self.mama_summary_for_doctor)} символів")
+            self.mama_summary_timestamp = datetime.now().isoformat()
 
         self.mode = "doctor"
         self.messages = []
@@ -582,6 +623,18 @@ class AuraAssistant:
             "Усі відповіді будуть надсилатися вам."
         )
         logger.info("🩺 Режим лікаря УВІМКНЕНО")
+
+        # Якщо є relay-відповідь від мами для лікаря
+        if self.pending_relay and self.pending_relay.get("from") == "mama":
+            relay_msg = self.pending_relay["question"]
+            self.messages.append({
+                "role": "assistant",
+                "content": f"Antwort der Patientin auf Ihre Frage: {relay_msg}",
+                "timestamp": datetime.now().isoformat()
+            })
+            self._send_telegram(f"📨 *RELAY мама→лікар:*\n{relay_msg}")
+            self.pending_relay = None
+            self.save_history()
 
     def set_normal_mode(self):
         """Повернути звичайний режим (українська) + фінальний звіт"""
@@ -598,6 +651,7 @@ class AuraAssistant:
             )
             self.doctor_summary_for_mama = doctor_summary
             logger.info(f"📝 Резюме лікаря для мами: {len(doctor_summary)} символів")
+            self.doctor_summary_timestamp = datetime.now().isoformat()
 
         # === ФІНАЛЬНИЙ ЗВІТ В TELEGRAM ===
         if self.doctor_session_active and (self.mama_messages or self.doctor_messages):
@@ -610,6 +664,18 @@ class AuraAssistant:
         self.save_history()
 
         logger.info("🏠 Звичайний режим УВІМКНЕНО")
+
+        # Якщо є relay-питання від лікаря для мами
+        if self.pending_relay and self.pending_relay.get("from") == "doctor":
+            relay_msg = self.pending_relay["question"]
+            self.messages.append({
+                "role": "assistant",
+                "content": relay_msg,
+                "timestamp": datetime.now().isoformat()
+            })
+            self._send_telegram(f"📨 *RELAY лікар→мама:*\n{relay_msg}")
+            self.pending_relay = None
+            self.save_history()
 
         # Повертаємо резюме лікаря для показу мамі
         if doctor_summary:
@@ -688,17 +754,17 @@ class AuraAssistant:
         # Вибираємо системний промпт з контекстом іншого режиму
         if self.mode == "doctor":
             system_prompt = SYSTEM_PROMPT_DOCTOR + time_context
-            if self.mama_summary_for_doctor:
+            if self.mama_summary_for_doctor and self._is_summary_fresh("mama"):
                 system_prompt += (
                     f"\n\n=== AKTUELLE BESCHWERDEN DER PATIENTIN (aus dem Gespräch mit ihr) ===\n"
                     f"{self.mama_summary_for_doctor}"
                 )
         else:
             system_prompt = SYSTEM_PROMPT_NORMAL + time_context
-            if self.doctor_summary_for_mama:
+            if self.doctor_summary_for_mama and self._is_summary_fresh("doctor"):
                 system_prompt += (
                     f"\n\n=== ОСТАННІ РЕКОМЕНДАЦІЇ ЛІКАРЯ ===\n"
-                    f"Лікар нещодавно оглядав маму. Ось що він сказав/рекомендував:\n"
+                    f"Лікар оглядав маму сьогодні. Ось що він сказав/рекомендував:\n"
                     f"{self.doctor_summary_for_mama}\n"
                     f"Якщо мама запитає що сказав лікар — розкажи простими словами."
                 )
@@ -726,6 +792,31 @@ class AuraAssistant:
             clean_reply = reply_text.split("[NOTIFY_SON]")[0].strip()
         else:
             clean_reply = reply_text
+
+        # Перевірка relay-маркерів (передача питань між режимами)
+        if "[RELAY_TO_MAMA]" in clean_reply:
+            relay_match = re.search(r'\[RELAY_TO_MAMA\]\((.+?)\)', clean_reply)
+            if relay_match:
+                self.pending_relay = {
+                    "from": "doctor",
+                    "question": relay_match.group(1),
+                    "context": user_message[:300]
+                }
+                self.save_history()
+                logger.info(f"📨 Relay doctor→mama: {relay_match.group(1)[:100]}")
+            clean_reply = re.sub(r'\[RELAY_TO_MAMA\]\(.*?\)', '', clean_reply).strip()
+
+        if "[RELAY_TO_DOCTOR]" in clean_reply:
+            relay_match = re.search(r'\[RELAY_TO_DOCTOR\]\((.+?)\)', clean_reply)
+            if relay_match:
+                self.pending_relay = {
+                    "from": "mama",
+                    "question": relay_match.group(1),
+                    "context": user_message[:300]
+                }
+                self.save_history()
+                logger.info(f"📨 Relay mama→doctor: {relay_match.group(1)[:100]}")
+            clean_reply = re.sub(r'\[RELAY_TO_DOCTOR\]\(.*?\)', '', clean_reply).strip()
 
         # Зберігаємо відповідь (використовуємо "assistant" для OpenAI сумісності)
         self.messages.append({
@@ -1011,6 +1102,9 @@ class AuraAssistant:
         self.doctor_session_active = False
         self.translator_messages = []
         self.translator_active = False
+        self.pending_relay = None
+        self.mama_summary_timestamp = None
+        self.doctor_summary_timestamp = None
         self.mode = "normal"
         self.save_history()
         logger.info("🗑️ Історію очищено")
