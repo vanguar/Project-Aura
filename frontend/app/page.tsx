@@ -27,8 +27,6 @@ export default function AuraHome() {
   const [translatorDraftWho, setTranslatorDraftWho] = useState<'doctor' | 'mama'>('doctor');
   const [balance, setBalance] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
-  const [relayActive, setRelayActive] = useState(false);
-  const [doctorSessionActive, setDoctorSessionActive] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -42,32 +40,6 @@ export default function AuraHome() {
   useEffect(() => {
     if (serverIp !== "127.0.0.1") fetchBalance();
   }, [serverIp]);
-
-  // Relay timeout: автозавершення через 20 хвилин
-  useEffect(() => {
-    if (!relayActive || !doctorSessionActive) return;
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch(`http://${serverIp}:8000/ai-chat/check-relay-timeout`);
-        const data = await res.json();
-        if (data.timeout) {
-          // Автозавершення relay
-          const relayRes = await fetch(`http://${serverIp}:8000/ai-chat/finish-relay`, { method: 'POST' });
-          const relayData = await relayRes.json();
-          if (relayData.status === 'ok') {
-            setAiMode('doctor');
-            setRelayActive(false);
-            setAiMessages(prev => [
-              ...prev,
-              { role: 'system', content: '⏰ Автоматичне завершення (таймаут 20 хв) / Auto-Abschluss (20 Min. Timeout)' },
-              { role: 'assistant', content: relayData.message }
-            ]);
-          }
-        }
-      } catch (e) { /* ignore */ }
-    }, 60000);
-    return () => clearInterval(timer);
-  }, [relayActive, doctorSessionActive, serverIp]);
 
   const saveIp = () => {
     const ip = prompt("Введіть IP Termux (наприклад, 192.168.1.5):", serverIp);
@@ -151,8 +123,6 @@ export default function AuraHome() {
       const res = await fetch(`http://${serverIp}:8000/ai-chat/history`);
       const data = await res.json();
       setAiMode(data.mode);
-      setRelayActive(data.relay_active || false);
-      setDoctorSessionActive(data.doctor_session_active || false);
       setAiMessages(data.messages.map((m: any) => ({
         role: m.role === 'model' ? 'assistant' : 'user',
         content: m.content
@@ -182,8 +152,6 @@ export default function AuraHome() {
         });
         const data = await res.json();
         setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
-        if (data.relay_active !== undefined) setRelayActive(data.relay_active);
-        if (data.doctor_session_active !== undefined) setDoctorSessionActive(data.doctor_session_active);
         if (data.notified) {
           setAiMessages(prev => [...prev, { role: 'system', content: '📨 Синові надіслано повідомлення' }]);
         }
@@ -282,81 +250,21 @@ export default function AuraHome() {
   const toggleDoctorMode = async () => {
     setModeSwitching('doctor');
     try {
-      if (aiMode === 'normal' && !doctorSessionActive) {
-        // Перший вхід в режим лікаря
+      if (aiMode === 'normal') {
         const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, { method: 'POST' });
         const data = await res.json();
         setAiMode('doctor');
-        setDoctorSessionActive(true);
-        setRelayActive(false);
         setAiMessages([{ role: 'assistant', content: data.message }]);
-      } else if (aiMode === 'normal' && doctorSessionActive) {
-        // Повернення до лікаря під час візиту
-        const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, { method: 'POST' });
-        const data = await res.json();
-        setAiMode('doctor');
-        setRelayActive(false);
-        // Показуємо повідомлення лікаря + relay якщо є
-        const histRes = await fetch(`http://${serverIp}:8000/ai-chat/history`);
-        const histData = await histRes.json();
-        setAiMessages(histData.messages.map((m: any) => ({
-          role: m.role === 'model' ? 'assistant' : m.role,
-          content: m.content
-        })));
       } else {
-        // Легке переключення на маму (візит НЕ завершується)
+        // Повертаємо нормальний режим — сервер генерує резюме лікаря для мами
         const res = await fetch(`http://${serverIp}:8000/ai-chat/normal-mode`, { method: 'POST' });
         const data = await res.json();
         setAiMode('normal');
-        // Перечитуємо історію щоб побачити relay-питання
-        const histRes = await fetch(`http://${serverIp}:8000/ai-chat/history`);
-        const histData = await histRes.json();
-        setRelayActive(histData.relay_active || false);
-        setAiMessages(histData.messages.map((m: any) => ({
-          role: m.role === 'model' ? 'assistant' : m.role,
-          content: m.content
-        })));
+        setAiMessages([
+          { role: 'system', content: '✅ Візит лікаря завершено. Звіт надіслано синові.' },
+          { role: 'assistant', content: data.message }
+        ]);
       }
-    } catch (e) {
-      alert("Помилка зв'язку з сервером");
-    }
-    setModeSwitching(null);
-  };
-
-  const finishRelay = async () => {
-    setModeSwitching('relay');
-    try {
-      const res = await fetch(`http://${serverIp}:8000/ai-chat/finish-relay`, { method: 'POST' });
-      const data = await res.json();
-      if (data.status === 'ok') {
-        setAiMode('doctor');
-        setRelayActive(false);
-        // Перечитуємо історію лікаря
-        const histRes = await fetch(`http://${serverIp}:8000/ai-chat/history`);
-        const histData = await histRes.json();
-        setAiMessages(histData.messages.map((m: any) => ({
-          role: m.role === 'model' ? 'assistant' : m.role,
-          content: m.content
-        })));
-      }
-    } catch (e) {
-      alert("Помилка зв'язку з сервером");
-    }
-    setModeSwitching(null);
-  };
-
-  const endVisit = async () => {
-    setModeSwitching('end');
-    try {
-      const res = await fetch(`http://${serverIp}:8000/ai-chat/end-visit`, { method: 'POST' });
-      const data = await res.json();
-      setAiMode('normal');
-      setDoctorSessionActive(false);
-      setRelayActive(false);
-      setAiMessages([
-        { role: 'system', content: '✅ Візит лікаря завершено. Звіт надіслано синові.' },
-        { role: 'assistant', content: data.message }
-      ]);
     } catch (e) {
       alert("Помилка зв'язку з сервером");
     }
@@ -368,8 +276,6 @@ export default function AuraHome() {
       await fetch(`http://${serverIp}:8000/ai-chat/clear`, { method: 'POST' });
       setAiMessages([]);
       setAiMode('normal');
-      setRelayActive(false);
-      setDoctorSessionActive(false);
     } catch (e) {
       alert("Помилка очищення");
     }
@@ -594,7 +500,7 @@ export default function AuraHome() {
                   <><Stethoscope size={16} /> ЛІКАР 🇩🇪</>
                 )}
               </button>
-              {aiMode === 'normal' && !doctorSessionActive && (
+              {aiMode === 'normal' && (
                 <button
                   onClick={startTranslator}
                   disabled={modeSwitching !== null}
@@ -622,58 +528,6 @@ export default function AuraHome() {
             </>
           )}
         </div>
-
-        {/* Кнопки: ПЕРЕДАТИ ВІДПОВІДЬ / ЗАВЕРШИТИ ВІЗИТ */}
-        {doctorSessionActive && aiMode !== 'translator' && (
-          <div className="mx-3 mt-1 flex gap-2">
-            {relayActive && aiMode === 'normal' && (
-              <button
-                onClick={finishRelay}
-                disabled={modeSwitching !== null}
-                className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 bg-purple-600 border-purple-400 text-white ${modeSwitching === 'relay' ? 'opacity-50' : ''}`}
-              >
-                {modeSwitching === 'relay' ? (
-                  <div className="flex items-center gap-2">
-                    <svg width="28" height="28" viewBox="0 0 28 28" className="animate-spin" style={{animationDuration: '3s'}}>
-                      <circle cx="14" cy="6" r="2.5" fill="white" opacity="0.9"/>
-                      <circle cx="20" cy="10" r="2" fill="white" opacity="0.6"/>
-                      <circle cx="20" cy="18" r="1.5" fill="white" opacity="0.4"/>
-                      <circle cx="14" cy="22" r="1.5" fill="white" opacity="0.3"/>
-                      <circle cx="8" cy="18" r="2" fill="white" opacity="0.5"/>
-                      <circle cx="8" cy="10" r="2.5" fill="white" opacity="0.7"/>
-                    </svg>
-                    <span className="text-xs">🤔</span>
-                  </div>
-                ) : (
-                  <><Send size={16} /> ПЕРЕДАТИ / ANTWORT SENDEN</>
-                )}
-              </button>
-            )}
-            <button
-              onClick={endVisit}
-              disabled={modeSwitching !== null}
-              className={`${relayActive && aiMode === 'normal' ? '' : 'flex-1'} py-3 px-4 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 bg-red-700 border-red-500 text-white ${modeSwitching === 'end' ? 'opacity-50' : ''}`}
-            >
-              {modeSwitching === 'end' ? (
-                <div className="flex items-center gap-2">
-                  <svg width="28" height="28" viewBox="0 0 28 28" className="animate-spin" style={{animationDuration: '3s'}}>
-                    <circle cx="14" cy="6" r="2.5" fill="white" opacity="0.9"/>
-                    <circle cx="20" cy="10" r="2" fill="white" opacity="0.6"/>
-                    <circle cx="20" cy="18" r="1.5" fill="white" opacity="0.4"/>
-                    <circle cx="14" cy="22" r="1.5" fill="white" opacity="0.3"/>
-                    <circle cx="8" cy="18" r="2" fill="white" opacity="0.5"/>
-                    <circle cx="8" cy="10" r="2.5" fill="white" opacity="0.7"/>
-                  </svg>
-                  <span className="text-xs">🤔</span>
-                </div>
-              ) : aiMode === 'doctor' ? (
-                <>BESUCH BEENDEN ✅</>
-              ) : (
-                <>ЗАВЕРШИТИ ВІЗИТ ✅</>
-              )}
-            </button>
-          </div>
-        )}
 
         {/* Chat messages */}
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
