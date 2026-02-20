@@ -354,21 +354,60 @@ export default function AuraHome() {
     recognition.lang = who === 'doctor' ? 'de-DE' : 'uk-UA';
     recognition.continuous = false;
 
+    let gotResult = false;
+
     recognition.onstart = () => { setAiListening(true); setTranslatorWho(who); };
 
     recognition.onresult = (event: any) => {
+      gotResult = true;
       const text = event.results[0][0].transcript;
-      if (append) {
-        setTranslatorDraft(prev => (prev + ' ' + text).trim());
+      if (text.trim()) {
+        if (append) {
+          setTranslatorDraft(prev => (prev + ' ' + text).trim());
+        } else {
+          setTranslatorDraft(text);
+          setTranslatorDraftWho(who);
+        }
       } else {
-        setTranslatorDraft(text);
-        setTranslatorDraftWho(who);
+        const msg = who === 'doctor'
+          ? '⚠️ Sprache nicht erkannt. Bitte erneut versuchen.'
+          : '⚠️ Не вдалося розпізнати. Спробуйте ще раз.';
+        setAiMessages(prev => [...prev, { role: 'system', content: msg }]);
       }
       setAiListening(false);
     };
 
-    recognition.onerror = () => setAiListening(false);
-    recognition.onend = () => setAiListening(false);
+    recognition.onerror = (event: any) => {
+      gotResult = true;
+      setAiListening(false);
+      const errorType = event?.error || 'unknown';
+      let msg = '';
+      if (errorType === 'network') {
+        msg = who === 'doctor'
+          ? '⚠️ Kein Internet. Bitte Verbindung prüfen.'
+          : '⚠️ Немає інтернету. Перевірте з\'єднання.';
+      } else if (errorType === 'no-speech') {
+        msg = who === 'doctor'
+          ? '⚠️ Keine Sprache erkannt. Bitte lauter sprechen.'
+          : '⚠️ Не почула голос. Говоріть голосніше.';
+      } else {
+        msg = who === 'doctor'
+          ? `⚠️ Fehler: ${errorType}. Bitte erneut versuchen.`
+          : `⚠️ Помилка: ${errorType}. Спробуйте ще раз.`;
+      }
+      setAiMessages(prev => [...prev, { role: 'system', content: msg }]);
+    };
+
+    recognition.onend = () => {
+      setAiListening(false);
+      if (!gotResult) {
+        const msg = who === 'doctor'
+          ? '⚠️ Keine Sprache erkannt. Bitte erneut versuchen.'
+          : '⚠️ Не вдалося розпізнати мову. Спробуйте ще раз.';
+        setAiMessages(prev => [...prev, { role: 'system', content: msg }]);
+      }
+    };
+
     recognition.start();
   };
 
@@ -792,7 +831,7 @@ export default function AuraHome() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-green-600 font-bold mt-0.5">2.</span>
-                <span>Drücken Sie die <strong>Mikrofon-Taste 🎙️</strong> und stellen Sie Ihre Frage auf Deutsch</span>
+                <span>Drücken Sie die große blaue Taste <strong>„SPRECHEN"</strong> und stellen Sie Ihre Frage auf Deutsch</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-green-600 font-bold mt-0.5">3.</span>
