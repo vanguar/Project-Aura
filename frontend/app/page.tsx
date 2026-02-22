@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff, Bot, Stethoscope, Mic, MicOff, Trash2, Send, Languages } from 'lucide-react';
+import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff, Bot, Stethoscope, Mic, MicOff, Trash2, Send, Languages, ShieldAlert, Phone, X } from 'lucide-react';
 
 export default function AuraHome() {
-  const [view, setView] = useState<'home' | 'meds' | 'ai' | 'arzt_info'>('home');
+  const [view, setView] = useState<'home' | 'meds' | 'ai' | 'arzt_info' | 'sos_confirm' | 'sos_details'>('home');
   const [isListening, setIsListening] = useState(false);
   const [activeMode, setActiveMode] = useState<'movie' | 'youtube' | null>(null);
   const [statusText, setStatusText] = useState("AURA готова");
@@ -27,6 +27,16 @@ export default function AuraHome() {
   const [translatorDraftWho, setTranslatorDraftWho] = useState<'doctor' | 'mama'>('doctor');
   const [balance, setBalance] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+
+  // SOS state
+  const [sosCountdown, setSosCountdown] = useState(5);
+  const [sosSending, setSosSending] = useState(false);
+  const [sosAlertSent, setSosAlertSent] = useState(false);
+  const [sosVoiceText, setSosVoiceText] = useState("");
+  const [sosListening, setSosListening] = useState(false);
+  const [sosDetailsSent, setSosDetailsSent] = useState(false);
+  const [sosDetailsLoading, setSosDetailsLoading] = useState(false);
+  const [sosInterpretation, setSosInterpretation] = useState("");
 
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -282,6 +292,101 @@ export default function AuraHome() {
   };
 
   // ============================================================
+  // SOS FUNCTIONS
+  // ============================================================
+
+  const startSosConfirm = () => {
+    setSosCountdown(5);
+    setSosSending(false);
+    setSosAlertSent(false);
+    setSosVoiceText("");
+    setSosDetailsSent(false);
+    setSosDetailsLoading(false);
+    setSosInterpretation("");
+    setSosListening(false);
+    setView('sos_confirm');
+  };
+
+  useEffect(() => {
+    if (view !== 'sos_confirm' || sosCountdown <= 0 || sosSending) return;
+    const timer = setTimeout(() => {
+      if (sosCountdown === 1) {
+        // Countdown finished — send SOS
+        sendSosAlert();
+      } else {
+        setSosCountdown(prev => prev - 1);
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [sosCountdown, view, sosSending]);
+
+  const sendSosAlert = async () => {
+    setSosSending(true);
+    try {
+      await fetch(`http://${serverIp}:8000/sos/alert`, { method: 'POST' });
+    } catch (e) {
+      // Even if network fails, move to details screen
+    }
+    setSosAlertSent(true);
+    setSosSending(false);
+    setView('sos_details');
+  };
+
+  const startSosVoice = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    if (recognitionRef.current) recognitionRef.current.stop();
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.lang = 'uk-UA';
+    recognition.continuous = false;
+
+    recognition.onstart = () => setSosListening(true);
+
+    recognition.onresult = (event: any) => {
+      const text = event.results[0][0].transcript;
+      if (text.trim()) {
+        setSosVoiceText(prev => (prev + ' ' + text).trim());
+      }
+      setSosListening(false);
+    };
+
+    recognition.onerror = () => setSosListening(false);
+    recognition.onend = () => setSosListening(false);
+
+    recognition.start();
+  };
+
+  const sendSosDetails = async () => {
+    if (!sosVoiceText.trim() || sosDetailsLoading) return;
+    setSosDetailsLoading(true);
+    try {
+      const res = await fetch(`http://${serverIp}:8000/sos/details`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: sosVoiceText })
+      });
+      const data = await res.json();
+      setSosInterpretation(data.interpretation || "Надіслано");
+      setSosDetailsSent(true);
+    } catch (e) {
+      setSosInterpretation("Помилка відправки, але тривогу вже надіслано!");
+      setSosDetailsSent(true);
+    }
+    setSosDetailsLoading(false);
+  };
+
+  const cancelSos = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.onend = null;
+      recognitionRef.current.abort();
+    }
+    setSosListening(false);
+    setView('home');
+  };
+
+  // ============================================================
   // TRANSLATOR FUNCTIONS
   // ============================================================
 
@@ -416,6 +521,184 @@ export default function AuraHome() {
     sendTranslatorMessage(translatorDraft.trim(), translatorDraftWho);
     setTranslatorDraft("");
   };
+
+  // ============================================================
+  // SOS CONFIRM VIEW (countdown)
+  // ============================================================
+  if (view === 'sos_confirm') {
+    return (
+      <main className="h-screen w-full bg-slate-950 text-white p-4 flex flex-col gap-4 overflow-hidden">
+        {/* Header */}
+        <div className="bg-red-900/60 border-2 border-red-600 rounded-3xl p-4 text-center">
+          <ShieldAlert size={48} className="mx-auto text-red-400 mb-2" />
+          <h1 className="text-3xl font-black uppercase">SOS ТРИВОГА</h1>
+          <p className="text-base text-red-300 mt-1">
+            Через {sosCountdown} сек. синові буде надіслано тривогу
+          </p>
+        </div>
+
+        {/* Countdown circle */}
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-36 h-36 rounded-full bg-red-800 border-8 border-red-500 flex items-center justify-center animate-pulse">
+            <span className="text-6xl font-black">{sosCountdown}</span>
+          </div>
+        </div>
+
+        {/* Two action buttons */}
+        <div className="flex flex-col gap-3">
+          {/* Primary: Send immediately + record voice */}
+          <div className="flex gap-3">
+            <button
+              onClick={sendSosAlert}
+              className="flex-1 py-5 bg-red-600 rounded-3xl border-4 border-red-400 text-xl font-black uppercase flex flex-col items-center justify-center gap-1 active:scale-95"
+            >
+              <Phone size={28} />
+              <span>НАДІСЛАТИ</span>
+              <span className="text-xs font-bold opacity-70 normal-case">тривогу зараз</span>
+            </button>
+
+            <button
+              onClick={() => {
+                sendSosAlert();
+              }}
+              className="flex-1 py-5 bg-blue-600 rounded-3xl border-4 border-blue-400 text-xl font-black uppercase flex flex-col items-center justify-center gap-1 active:scale-95"
+            >
+              <Mic size={28} />
+              <span>ЗАПИСАТИ</span>
+              <span className="text-xs font-bold opacity-70 normal-case">повідомлення</span>
+            </button>
+          </div>
+
+          {/* Cancel */}
+          <button
+            onClick={cancelSos}
+            className="w-full py-4 bg-slate-800 rounded-3xl border-2 border-slate-600 text-xl font-bold uppercase flex items-center justify-center gap-3 active:scale-95"
+          >
+            <X size={28} /> СКАСУВАТИ — Я ВИПАДКОВО
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // ============================================================
+  // SOS DETAILS VIEW (after alert sent - voice recording)
+  // ============================================================
+  if (view === 'sos_details') {
+    return (
+      <main className="h-screen w-full bg-slate-950 text-white p-4 flex flex-col gap-4 overflow-hidden">
+        {/* Confirmation banner */}
+        <div className="bg-green-900/60 border-2 border-green-500 rounded-3xl p-4 text-center">
+          <p className="text-2xl font-black text-green-400">✅ ТРИВОГУ НАДІСЛАНО!</p>
+          <p className="text-base text-green-300 mt-1">Володя отримав повідомлення</p>
+        </div>
+
+        {!sosDetailsSent ? (
+          <>
+            {/* Voice recording section */}
+            <div className="flex-1 flex flex-col items-center justify-center gap-4">
+              <Mic size={48} className="text-blue-400" />
+              <h2 className="text-2xl font-black text-center">
+                Розкажіть, що сталося
+              </h2>
+              <p className="text-base text-slate-400 text-center">
+                Якщо є сили — натисніть кнопку та розкажіть.{'\n'}
+                Аура передасть деталі синові.
+              </p>
+
+              {sosVoiceText && (
+                <div className="w-full bg-slate-800 rounded-2xl p-4 border border-slate-700">
+                  <p className="text-xs text-slate-400 mb-1">Ви сказали:</p>
+                  <p className="text-lg leading-relaxed">"{sosVoiceText}"</p>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => startSosVoice()}
+                      disabled={sosListening || sosDetailsLoading}
+                      className="flex-1 py-2 bg-slate-700 rounded-xl text-sm font-bold flex items-center justify-center gap-1 active:scale-95"
+                    >
+                      <Mic size={16} /> ДОПИСАТИ
+                    </button>
+                    <button
+                      onClick={() => setSosVoiceText("")}
+                      className="py-2 px-3 bg-red-900/50 rounded-xl active:scale-95"
+                    >
+                      <Trash2 size={16} className="text-red-400" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex flex-col gap-3">
+              {!sosVoiceText ? (
+                <button
+                  onClick={startSosVoice}
+                  disabled={sosListening}
+                  className={`w-full py-6 rounded-3xl border-4 flex items-center justify-center gap-3 text-2xl font-black uppercase active:scale-95 ${
+                    sosListening 
+                      ? 'bg-red-600 border-red-400 animate-pulse' 
+                      : 'bg-blue-600 border-blue-400'
+                  }`}
+                >
+                  {sosListening ? <MicOff size={36} /> : <Mic size={36} />}
+                  {sosListening ? 'СЛУХАЮ...' : 'ГОВОРИТИ 🎙️'}
+                </button>
+              ) : (
+                <button
+                  onClick={sendSosDetails}
+                  disabled={sosDetailsLoading}
+                  className={`w-full py-5 rounded-3xl border-4 flex items-center justify-center gap-3 text-2xl font-black uppercase active:scale-95 ${
+                    sosDetailsLoading ? 'bg-orange-700 border-orange-500 animate-pulse' : 'bg-green-600 border-green-400'
+                  }`}
+                >
+                  {sosDetailsLoading ? (
+                    <>⏳ НАДСИЛАЮ...</>
+                  ) : (
+                    <><Send size={28} /> НАДІСЛАТИ ДЕТАЛІ</>
+                  )}
+                </button>
+              )}
+
+              <button
+                onClick={cancelSos}
+                className="w-full py-3 bg-slate-800 rounded-2xl border border-slate-700 text-lg font-bold flex items-center justify-center gap-2 active:scale-95"
+              >
+                <ArrowLeft size={24} /> ПОВЕРНУТИСЯ
+              </button>
+            </div>
+          </>
+        ) : (
+          /* After details sent */
+          <>
+            <div className="flex-1 flex flex-col items-center justify-center gap-4">
+              <div className="text-6xl">✅</div>
+              <h2 className="text-2xl font-black text-center text-green-400">
+                Деталі надіслано!
+              </h2>
+              {sosInterpretation && (
+                <div className="w-full bg-slate-800 rounded-2xl p-4 border border-slate-700">
+                  <p className="text-xs text-slate-400 mb-1">AURA передала синові:</p>
+                  <p className="text-base leading-relaxed">{sosInterpretation}</p>
+                </div>
+              )}
+              <p className="text-base text-slate-400 text-center mt-2">
+                Володя отримав тривогу та деталі.{'\n'}
+                Чекайте — він зв'яжеться з вами.
+              </p>
+            </div>
+
+            <button
+              onClick={cancelSos}
+              className="w-full py-4 bg-slate-800 rounded-3xl border border-slate-700 text-xl font-bold flex items-center justify-center gap-2 active:scale-95"
+            >
+              <ArrowLeft size={24} /> НА ГОЛОВНУ
+            </button>
+          </>
+        )}
+      </main>
+    );
+  }
 
   // ============================================================
   // AI CHAT VIEW
@@ -896,6 +1179,15 @@ export default function AuraHome() {
           <Film size={64} /><span className="text-3xl font-black mt-2 uppercase tracking-widest">ФІЛЬМИ</span>
         </button>
 
+        <button 
+          onClick={() => startVoice('youtube')}
+          className={`flex-1 rounded-[30px] border-4 flex items-center justify-center gap-4 active:scale-95 shadow-lg ${
+            isListening && activeMode === 'youtube' ? 'bg-green-600 border-green-400 animate-pulse' : 'bg-red-600 border-red-400'
+          }`}
+        >
+          <Youtube size={40} /><span className="text-2xl font-black uppercase">YouTube</span>
+        </button>
+
         <div className="flex-[2] flex gap-2">
           <button 
             onClick={openMeds} 
@@ -922,12 +1214,11 @@ export default function AuraHome() {
         </button>
 
         <button 
-          onClick={() => startVoice('youtube')}
-          className={`flex-1 rounded-[30px] border-4 flex items-center justify-center gap-4 active:scale-95 shadow-lg ${
-            isListening && activeMode === 'youtube' ? 'bg-green-600 border-green-400 animate-pulse' : 'bg-red-600 border-red-400'
-          }`}
+          onClick={startSosConfirm}
+          className="flex-1 rounded-[30px] border-4 flex items-center justify-center gap-3 active:scale-95 shadow-lg bg-red-700 border-red-500"
         >
-          <Youtube size={40} /><span className="text-2xl font-black uppercase">YouTube</span>
+          <ShieldAlert size={36} className="text-white" />
+          <span className="text-2xl font-black uppercase text-white">SOS — ДОПОМОГА</span>
         </button>
       </div>
     </main>

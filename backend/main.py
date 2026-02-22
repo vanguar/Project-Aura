@@ -301,6 +301,36 @@ async def get_billing_balance():
         return {"error": str(e), "balance": None}
 
 # ============================================================
+# ЕНДПОІНТИ SOS
+# ============================================================
+
+@app.post("/sos/alert")
+async def sos_alert():
+    """Миттєве SOS-сповіщення в Telegram"""
+    try:
+        ai_bot.send_sos_alert()
+        return {"status": "sent", "message": "SOS alert sent to Telegram"}
+    except Exception as e:
+        logger.error(f"SOS alert error: {e}")
+        return {"status": "error", "message": str(e)}
+
+class SOSVoice(BaseModel):
+    text: str
+
+@app.post("/sos/details")
+async def sos_details(body: SOSVoice):
+    """AI інтерпретує голосове повідомлення SOS і відправляє в Telegram"""
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="Порожнє повідомлення")
+    
+    try:
+        interpretation = ai_bot.interpret_sos_voice(body.text)
+        return {"status": "sent", "interpretation": interpretation}
+    except Exception as e:
+        logger.error(f"SOS details error: {e}")
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
 # ЕНДПОІНТИ ПЕРЕКЛАДАЧА
 # ============================================================
 
