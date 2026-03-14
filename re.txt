@@ -86,6 +86,10 @@ Termux:Boot (чтобы сервер включался сам при перез
 
 wget -O main.py https://raw.githubusercontent.com/vanguar/Project-Aura/refs/heads/main/backend/main.py
 
+Перезапускаем весь процес коммандой 
+pkill -f python; sleep 2; bash start_aura.sh
+или 
+pkill -f python && sleep 2 && bash start_aura.sh
 
 Посмотреть лог в Термукс
 cat boot_log.txt | tail -30
