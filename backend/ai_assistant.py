@@ -230,6 +230,35 @@ PATIENTENAKTE:
 
 WICHTIG: Du ersetzt keinen Arzt. Du bist ein Informationssystem, das dem Arzt hilft, schnell einen Überblick zu bekommen."""
 
+SYSTEM_PROMPT_DOCTOR_UK = f"""Ти AURA, медичний AI-асистент пацієнтки Галини Задорожної.
+
+ТВОЯ РОЛЬ:
+- Ти спілкуєшся з лікарем або медичним персоналом УКРАЇНСЬКОЮ мовою.
+- Ти знаєш повну медичну історію пацієнтки (нижче).
+- Давай тільки конкретні факти про пацієнтку — коротко, структуровано, без води.
+- Відповідай на питання лікаря по-діловому та професійно.
+- При невпевненості — вказуй, що ти AI-система, і рекомендуй звернутися до лікуючого лікаря.
+
+- ВАЖЛИВО: Ти говориш з ФАХОВИМ лікарем. НЕ пояснюй базових медичних термінів чи хвороб — лікар їх знає. Жодних визначень Паркінсона, гіпертонії тощо. Концентруйся ВИКЛЮЧНО на КОНКРЕТНИХ ДАНИХ цієї пацієнтки: показники, поточна терапія, дозування, перебіг симптомів, релевантні висновки.
+- Відповідай КОМПАКТНО: без довгих вступів, без загальних пояснень. Тільки факти про пацієнтку.
+- Приклад НЕПРАВИЛЬНО: "Хвороба Паркінсона — це нейродегенеративне захворювання, яке..."
+- Приклад ПРАВИЛЬНО: "Пацієнтка має G20.90 близько 7 років. Поточні симптоми: човгаюча хода, слабкість у кінцівках, наростаюча брадикінезія з 01/2026."
+- ВАЖЛИВО ПРО ЛІКИ: Терапія призначена в Німеччині. Українському лікарю давай як міжнародні непатентовані назви (наприклад: леводопа/карбідопа), так і торгові назви (Мадопар, Кветіапін Ауробіндо тощо) — він сам зорієнтується з аналогами в Україні.
+- Можеш зрідка зробити легке професійне зауваження з нотками теплоти — але ТІЛЬКИ якщо доречно.
+- Наприклад: якщо лікар питає чи приймає пацієнтка ліки, можеш відповісти: "Так, Галина приймає ліки сумлінно — вона зразкова пацієнтка."
+- ЖОДНОГО гумору при серйозних діагнозах чи поганих новинах. У сумніві — будь діловою.
+- Максимум 1 таке зауваження за розмову.
+
+МОВА: Завжди відповідай УКРАЇНСЬКОЮ. Використовуй медичну термінологію.
+
+СПОВІЩЕННЯ СИНА:
+До кожної відповіді додавай маркер: [NOTIFY_SON](Триває візит до лікаря: [короткий зміст питання лікаря])
+
+МЕДИЧНА КАРТКА:
+{PATIENT_CONTEXT}
+
+ВАЖЛИВО: Ти не замінюєш лікаря. Ти інформаційна система, яка допомагає лікарю швидко отримати огляд."""
+
 # ============================================================
 # ПРОМПТИ ДЛЯ ГЕНЕРАЦІЇ РЕЗЮМЕ
 # ============================================================
@@ -251,6 +280,27 @@ SUMMARIZE_PROMPT_DOCTOR_TO_MAMA = """Проаналізуй діалог з лі
 Формат відповіді (тільки це, нічого більше):
 Галино Іванівно, лікар щойно вас оглянув. Ось що він сказав:
 [Просте пояснення українською, 3-5 речень максимум]
+
+Ось діалог з лікарем:
+"""
+
+SUMMARIZE_PROMPT_MAMA_TO_DOCTOR_UK = """Проаналізуй діалог з пацієнткою (Галиною Іванівною) і створи КОРОТКЕ РЕЗЮМЕ УКРАЇНСЬКОЮ для лікаря.
+
+Формат відповіді (тільки це, нічого більше):
+--- РЕЗЮМЕ РОЗМОВИ З ПАЦІЄНТКОЮ ---
+Поточні скарги: [що турбує]
+Спостереження: [що помітив AI]
+Настрій: [емоційний стан]
+---
+
+Ось діалог:
+"""
+
+SUMMARIZE_PROMPT_DOCTOR_TO_MAMA_UK = """Проаналізуй діалог з лікарем (українською, з медичними термінами) і створи ПРОСТЕ ПОЯСНЕННЯ УКРАЇНСЬКОЮ для мами (77 років, говорить простою мовою, не любить складних термінів).
+
+Формат відповіді (тільки це, нічого більше):
+Галино Іванівно, лікар щойно вас оглянув. Ось що він сказав простими словами:
+[3-5 речень, без медичної термінології. Якщо вжито термін — поясни в дужках простою мовою]
 
 Ось діалог з лікарем:
 """
@@ -397,6 +447,7 @@ class AuraAssistant:
         self.mama_summary_for_doctor = ""   # резюме мами → лікарю (DE)
         self.doctor_summary_for_mama = ""   # резюме лікаря → мамі (UA)
         self.doctor_session_active = False  # чи був активний сеанс лікаря
+        self.doctor_lang = "de"  # "de" або "uk" — мова поточної сесії лікаря
         # Режим перекладача
         self.translator_messages = []  # історія перекладу [{who: "doctor"/"mama", original: str, translated: str}]
         self.translator_active = False
@@ -416,6 +467,7 @@ class AuraAssistant:
                     self.mama_summary_for_doctor = data.get("mama_summary_for_doctor", "")
                     self.doctor_summary_for_mama = data.get("doctor_summary_for_mama", "")
                     self.doctor_session_active = data.get("doctor_session_active", False)
+                    self.doctor_lang = data.get("doctor_lang", "de")
                     self.translator_messages = data.get("translator_messages", [])
                     self.translator_active = data.get("translator_active", False)
                     logger.info(f"📂 Історію завантажено: {len(self.messages)} повідомлень, режим: {self.mode}")
@@ -437,6 +489,7 @@ class AuraAssistant:
                 "mama_summary_for_doctor": self.mama_summary_for_doctor,
                 "doctor_summary_for_mama": self.doctor_summary_for_mama,
                 "doctor_session_active": self.doctor_session_active,
+                "doctor_lang": self.doctor_lang,
                 "translator_messages": self.translator_messages,
                 "translator_active": self.translator_active
             }
@@ -591,19 +644,27 @@ class AuraAssistant:
             return ""
 
     # --- Режими ---
-    def set_doctor_mode(self):
-        """Переключити на режим лікаря (німецька мова)"""
+    def set_doctor_mode(self, lang: str = "de"):
+        """Переключити на режим лікаря. lang: 'de' (Німеччина) або 'uk' (Україна)."""
+        if lang not in ("de", "uk"):
+            lang = "de"
+        self.doctor_lang = lang
+
         # Зберігаємо поточну розмову мами
         if self.mode == "normal" and self.messages:
             self.mama_messages = list(self.messages)
 
+        # Вибір правильного summarize-промту
+        summarize_prompt = (
+            SUMMARIZE_PROMPT_MAMA_TO_DOCTOR_UK if lang == "uk"
+            else SUMMARIZE_PROMPT_MAMA_TO_DOCTOR
+        )
+
         # Генеруємо резюме розмови з мамою для лікаря
         if self.mama_messages:
             mama_dialog = self._format_dialog(self.mama_messages, mode="normal")
-            self.mama_summary_for_doctor = self._generate_summary(
-                SUMMARIZE_PROMPT_MAMA_TO_DOCTOR, mama_dialog
-            )
-            logger.info(f"📝 Резюме мами для лікаря: {len(self.mama_summary_for_doctor)} символів")
+            self.mama_summary_for_doctor = self._generate_summary(summarize_prompt, mama_dialog)
+            logger.info(f"📝 Резюме мами для лікаря ({lang.upper()}): {len(self.mama_summary_for_doctor)} символів")
 
         self.mode = "doctor"
         self.messages = []
@@ -611,13 +672,15 @@ class AuraAssistant:
         self.doctor_session_active = True
         self.save_history()
 
-        # Сповіщення сина
+        # Сповіщення сина з прапорцем мови
+        flag = "🇩🇪" if lang == "de" else "🇺🇦"
+        lang_name = "Німеччина (DE)" if lang == "de" else "Україна (UA)"
         self._send_telegram(
-            "⚕️ *ВІЗИТ ЛІКАРЯ*\n"
-            "Лікар прийшов. AURA переключена в режим лікаря (DE).\n"
-            "Усі відповіді будуть надсилатися вам."
+            f"⚕️ *ВІЗИТ ЛІКАРЯ* {flag}\n"
+            f"Лікар прийшов ({lang_name}). AURA переключена в режим лікаря.\n"
+            f"Усі відповіді будуть надсилатися вам."
         )
-        logger.info("🩺 Режим лікаря УВІМКНЕНО")
+        logger.info(f"🩺 Режим лікаря УВІМКНЕНО (lang={lang})")
 
     def set_normal_mode(self):
         """Повернути звичайний режим (українська) + фінальний звіт"""
@@ -625,13 +688,15 @@ class AuraAssistant:
         if self.mode == "doctor" and self.messages:
             self.doctor_messages = list(self.messages)
 
-        # Генеруємо резюме розмови лікаря для мами
+        # Генеруємо резюме розмови лікаря для мами (мова залежить від сесії)
+        summarize_prompt = (
+            SUMMARIZE_PROMPT_DOCTOR_TO_MAMA_UK if self.doctor_lang == "uk"
+            else SUMMARIZE_PROMPT_DOCTOR_TO_MAMA
+        )
         doctor_summary = ""
         if self.doctor_messages:
             doctor_dialog = self._format_dialog(self.doctor_messages, mode="doctor")
-            doctor_summary = self._generate_summary(
-                SUMMARIZE_PROMPT_DOCTOR_TO_MAMA, doctor_dialog
-            )
+            doctor_summary = self._generate_summary(summarize_prompt, doctor_dialog)
             self.doctor_summary_for_mama = doctor_summary
             logger.info(f"📝 Резюме лікаря для мами: {len(doctor_summary)} символів")
 
@@ -723,7 +788,9 @@ class AuraAssistant:
 
         # Вибираємо системний промпт з контекстом іншого режиму
         if self.mode == "doctor":
-            system_prompt = SYSTEM_PROMPT_DOCTOR + time_context
+            system_prompt = (
+                SYSTEM_PROMPT_DOCTOR_UK if self.doctor_lang == "uk" else SYSTEM_PROMPT_DOCTOR
+            ) + time_context
             if self.mama_summary_for_doctor:
                 system_prompt += (
                     f"\n\n=== AKTUELLE BESCHWERDEN DER PATIENTIN (aus dem Gespräch mit ihr) ===\n"

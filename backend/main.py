@@ -1,4 +1,5 @@
 import os
+import json
 import platform
 import subprocess
 import urllib.parse
@@ -13,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from thefuzz import fuzz
 from transliterate import translit
+from typing import Optional
 from pydantic import BaseModel
 
 # === ІМПОРТ AI-ПОМІЧНИКА ===
@@ -131,62 +133,129 @@ def wait_for_playback(char_count):
     estimated_seconds = max(char_count / 150, 2)
     time.sleep(estimated_seconds)
 
+# --- СТАН ТА ФАЙЛИ ---
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.path.join(_BACKEND_DIR, "state.json")
+LAST_FIRED_FILE = os.path.join(_BACKEND_DIR, "last_fired.json")
+
+def _load_state() -> dict:
+    try:
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"reminders_enabled": True}
+
+def _save_state(state: dict) -> None:
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception as e:
+        logger.error(f"❌ Помилка збереження стану: {e}")
+
+def _load_last_fired() -> dict:
+    try:
+        with open(LAST_FIRED_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_last_fired(state: dict) -> None:
+    try:
+        with open(LAST_FIRED_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception as e:
+        logger.error(f"❌ Помилка збереження last_fired: {e}")
+
+def _minutes_now() -> int:
+    now = datetime.now()
+    return now.hour * 60 + now.minute
+
+def _slot_minutes(slot_str: str) -> int:
+    h, m = map(int, slot_str.split(":"))
+    return h * 60 + m
+
+def _yesterday_iso() -> str:
+    from datetime import timedelta
+    return (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
 # --- ГЛОБАЛЬНІ ЗМІННІ ДЛЯ ЛІКІВ ---
-reminders_enabled = False
+_state = _load_state()
+reminders_enabled = _state.get("reminders_enabled", True)
 test_active = False
 test_trigger_time = 0
+
+GRACE_WINDOW_MIN = 15
 
 MEDS_TEXT_SCHEDULE = """
 💊 ЩОДЕННИЙ РОЗКЛАД ПРИЙОМУ ЛІКІВ:
 
-🌅 05:00 — Мадопар LT (мікстура) — 1 доза
-🌄 08:00 — Леводопа 200/50 (½ табл.), Ксадаго 50 мг (1 табл.), Габапентин 100 мг (1 капс.)
+🌅 05:00 — Мадопар LT (мікстура) — 1 пакетик
+🌄 08:00 — Леводопа 200/50 (½ табл.), Габапентин 100 мг (1 капс.), Еналаприл 10 мг (1 табл.), Макрогол (1 пакетик), Панкреатин (1 капс.)
 ⏰ 11:00 — Леводопа 200/50 (1 таблетка)
-🍽️ 13:00 — Габапентин 100 мг (1 капсула)
+🍽️ 13:00 — Габапентин 100 мг (1 капсула), Панкреатин (1 капс.)
 🕐 14:00 — Леводопа 200/50 (½ таблетки)
 🕔 17:00 — Леводопа 200/50 (1 таблетка)
-🌆 19:00 — Габапентин 100 мг (1 капсула), Кветіапін 25 мг (1 табл.)
+🌆 19:00 — Габапентин 100 мг (1 капс.), Кветіапін 25 мг (1 табл.), Еналаприл 10 мг (1 табл.), Панкреатин (1 капс.)
 🕗 20:00 — Леводопа 200/50 (½ таблетки)
-🌙 22:00 — Леводопа Retard (1 табл. НЕ ЛАМАТИ!), Кветіапін 25 мг (1 табл.)
+🌙 22:00 — Леводопа Retard (2 табл. НЕ ЛАМАТИ!), Кветіапін 25 мг (1 табл.), Міртазапін 30 мг (1 табл.)
 
 ⚠️ ВАЖЛИВО: Леводопу Retard о 22:00 ковтати тільки цілою!
+
+──────────────────────────
+🆘 ЗА ПОТРЕБОЮ (тільки якщо потрібно, БЕЗ автонагадувань):
+• Домперидон (Мотіліум) 10 мг — за 1 год до їжі, при нудоті
+• Езомепразол 20 мг — при печії/болях у шлунку
+• Цетиризин 10 мг — при алергії, ввечері
+• Лаксанс (краплі) — 10–15 крапель при запорі (якщо Макрогол не допомагає)
 """
 
 MEDS_TIMETABLE = [
-    {"time": "05:00", "msg": "Мадопар мікстура, одна доза"},
-    {"time": "08:00", "msg": "Леводопа половина таблетки, Ксадаго одна таблетка та Габапентін одна капсула"},
+    {"time": "05:00", "msg": "Мадопар мікстура, один пакетик"},
+    {"time": "08:00", "msg": "Леводопа половина таблетки, Габапентін одна капсула, Еналаприл одна таблетка, Макрогол один пакетик та Панкреатин одна капсула"},
     {"time": "11:00", "msg": "Леводопа, одна ціла таблетка"},
-    {"time": "13:00", "msg": "Габапентін, одна капсула"},
+    {"time": "13:00", "msg": "Габапентін одна капсула та Панкреатин одна капсула"},
     {"time": "14:00", "msg": "Леводопа, половина таблетки"},
     {"time": "17:00", "msg": "Леводопа, одна ціла таблетка"},
-    {"time": "19:00", "msg": "Габапентін одна капсула та Кветіапін одна таблетка"},
+    {"time": "19:00", "msg": "Габапентін одна капсула, Кветіапін одна таблетка, Еналаприл одна таблетка та Панкреатин одна капсула"},
     {"time": "20:00", "msg": "Леводопа, половина таблетки"},
-    {"time": "22:00", "msg": "Леводопа Ретард ціла таблетка. Не ламати. Та Кветіапін одна таблетка"}
+    {"time": "22:00", "msg": "Леводопа Ретард дві таблетки. Не ламати. Кветіапін одна таблетка та Міртазапін одна таблетка"},
 ]
 
 # --- ФОНОВИЙ ПОТІК ---
 def check_meds_worker():
     global reminders_enabled, test_active, test_trigger_time
     logger.info("⚙️ Фоновий потік AURA запущено")
+    last_fired = _load_last_fired()
+
     while True:
         now_ts = time.time()
-        
+
         if test_active and now_ts >= test_trigger_time:
             subprocess.run(['termux-notification', '--title', 'ТЕСТ АУРА', '--content', 'Система справна.'])
             subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '1.0', 'Перевірка успішна. Аура працює нормально.'])
             test_active = False
-        
+
         if reminders_enabled:
-            current_hm = datetime.now().strftime("%H:%M")
+            today = datetime.now().strftime("%Y-%m-%d")
+            now_min = _minutes_now()
+
             for item in MEDS_TIMETABLE:
-                if item["time"] == current_hm:
-                    logger.info(f"🔔 ПРИЙОМ ЛІКІВ: {item['time']}")
+                slot_min = _slot_minutes(item["time"])
+                key = f"{today}:{item['time']}"
+                if key in last_fired:
+                    continue
+                delta = now_min - slot_min
+                if 0 <= delta <= GRACE_WINDOW_MIN:
+                    logger.info(f"🔔 ПРИЙОМ ЛІКІВ ({item['time']}, запізнення {delta} хв)")
                     subprocess.run(['termux-notification', '--title', 'ПРИЙОМ ЛІКІВ', '--content', item['msg']])
                     voice_text = f"Мамо, час приймати ліки. {item['msg']}"
                     subprocess.run(['termux-tts-speak', '-l', 'uk-UA', '-r', '0.8', voice_text])
-                    time.sleep(61)
-        
-        time.sleep(1)
+                    last_fired[key] = now_ts
+                    yesterday = _yesterday_iso()
+                    last_fired = {k: v for k, v in last_fired.items() if k.startswith(today) or k.startswith(yesterday)}
+                    _save_last_fired(last_fired)
+
+        time.sleep(5)
 
 threading.Thread(target=check_meds_worker, daemon=True).start()
 
@@ -204,6 +273,7 @@ async def enable_reminders():
     reminders_enabled = True
     test_active = True
     test_trigger_time = time.time() + 30
+    _save_state({"reminders_enabled": True})
     return {"status": "enabled"}
 
 @app.post("/disable-reminders")
@@ -211,6 +281,7 @@ async def disable_reminders():
     global reminders_enabled, test_active
     reminders_enabled = False
     test_active = False
+    _save_state({"reminders_enabled": False})
     return {"status": "disabled"}
 
 # ============================================================
@@ -239,14 +310,19 @@ async def ai_chat(body: ChatMessage):
     
     return result
 
+class DoctorModeRequest(BaseModel):
+    lang: str = "de"  # "de" або "uk"
+
 @app.post("/ai-chat/doctor-mode")
-async def ai_doctor_mode():
-    """Переключити на режим лікаря (німецька)"""
-    ai_bot.set_doctor_mode()
-    return {
-        "status": "doctor_mode",
-        "message": "Arztmodus aktiviert. Ich kenne die vollständige Krankengeschichte der Patientin und kann Ihnen alle Informationen bereitstellen."
-    }
+async def ai_doctor_mode(body: Optional[DoctorModeRequest] = None):
+    """Переключити на режим лікаря. lang: 'de' (Німеччина) або 'uk' (Україна)."""
+    lang = body.lang if (body and body.lang in ("de", "uk")) else "de"
+    ai_bot.set_doctor_mode(lang=lang)
+    if lang == "uk":
+        message = "Режим лікаря активовано. Я знаю повну медичну історію пацієнтки і готова надати інформацію."
+    else:
+        message = "Arztmodus aktiviert. Ich kenne die vollständige Krankengeschichte der Patientin und kann Ihnen alle Informationen bereitstellen."
+    return {"status": "doctor_mode", "lang": lang, "message": message}
 
 @app.post("/ai-chat/normal-mode")
 async def ai_normal_mode():

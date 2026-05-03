@@ -80,6 +80,19 @@ def send_error_to_tg(error_text):
     except:
         pass
 
+def send_sos_alert_geo():
+    """SOS-ескалація: 20+ хвилин без координат"""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": "🚨 <b>Не можу знайти маму понад 20 хвилин.</b>\nПеревір її стан.",
+            "parse_mode": "HTML"
+        }
+        requests.post(url, json=payload, timeout=10)
+    except:
+        pass
+
 def main():
     # Сообщение о запуске
     try:
@@ -90,17 +103,33 @@ def main():
     except:
         pass
 
+    fail_streak = 0
+    ESCALATION_THRESHOLD = 4  # 4 цикли × 5 хв = 20 хвилин
+
     while True:
         lat, long, error = get_location()
-        
+
         if lat and long:
+            if fail_streak >= ESCALATION_THRESHOLD:
+                try:
+                    requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={"chat_id": CHAT_ID, "text": "✅ Координати знову приходять", "parse_mode": "HTML"},
+                        timeout=10
+                    )
+                except:
+                    pass
+            fail_streak = 0
             send_to_telegram(lat, long)
             logging.info(f"Координаты отправлены: {lat}, {long}")
         else:
-            logging.warning(f"Сбой: {error}")
-            # ОТПРАВКА ОШИБКИ В ТГ (то, что мы обсуждали)
-            send_error_to_tg(error)
-        
+            fail_streak += 1
+            logging.warning(f"Сбой #{fail_streak}: {error}")
+            if fail_streak == 1:
+                send_error_to_tg(error)
+            elif fail_streak == ESCALATION_THRESHOLD:
+                send_sos_alert_geo()
+
         time.sleep(INTERVAL)
 
 if __name__ == "__main__":
