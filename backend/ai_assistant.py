@@ -62,21 +62,6 @@ PATIENT_CONTEXT = """
 • Задишка — щоденно останні 4 дні, тиск у грудях
 • Голова: «як у тумані» — рідше, ніж до HELIOS
 
-=== АКТУАЛЬНІ ЛІКИ (план невропатолога від 23.10.2025) ===
-05:00 — Мадопар LT 100/25 (мікстура) — 1 доза
-08:00 — Леводопа/Карбідопа 200/50 — ½ табл + Ксадаго 50 мг — 1 табл + Габапентин 100 мг — 1 капс
-11:00 — Леводопа/Карбідопа 200/50 — 1 табл
-13:00 — Габапентин 100 мг — 1 капс
-14:00 — Леводопа/Карбідопа 200/50 — ½ табл
-17:00 — Леводопа/Карбідопа 200/50 — 1 табл
-19:00 — Габапентин 100 мг — 1 капс + Кветіапін 25 мг — 1 табл
-20:00 — Леводопа/Карбідопа 200/50 — ½ табл
-22:00 — Леводопа/Карбідопа Retard 100/25 (НЕ ЛАМАТИ!) — 1 табл + Кветіапін 25 мг — 1 табл
-
-Додатково за потреби: Цетиризин 10 мг (алергія), Еналаприл 10 мг (тиск),
-Міртазапін 15 мг (на ніч), Диклофенак 50 мг (біль), Ліпазим (ферменти),
-МОВІКОЛ (запор), Пантопразол 40 мг (07:30 до їди).
-
 ⛔ СКАСОВАНІ: Амітриптилін 25 мг, Онгентіс (Опікапон) 50 мг, Праміпексол 1.05 мг — всі через делірій.
 
 === ЛАБОРАТОРНІ ДАНІ ===
@@ -134,6 +119,10 @@ PATIENT_CONTEXT = """
 HELIOS: PD Dr. Deborah Janowitz (шефлікар)
 Наступний прийом: 09.06.2026, 14:45 у невропаталогії Gemeinschaftspraxis, Bleistraße 13, Stralsund
 """
+
+WEEKDAYS_UA = ["понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя"]
+MONTHS_UA = ["січня", "лютого", "березня", "квітня", "травня", "червня",
+             "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"]
 
 # ============================================================
 # СИСТЕМНІ ПРОМПТИ
@@ -228,6 +217,8 @@ Füge bei jeder Antwort den Marker hinzu: [NOTIFY_SON](Arztbesuch läuft: [kurze
 PATIENTENAKTE:
 {PATIENT_CONTEXT}
 
+HINWEIS: Das aktuelle Datum und der aktuelle Medikationsplan stehen im Kontext (auf Ukrainisch). Verwende AUSSCHLIESSLICH diese Informationen — keine erfundenen Daten und keine veralteten Pläne.
+
 WICHTIG: Du ersetzt keinen Arzt. Du bist ein Informationssystem, das dem Arzt hilft, schnell einen Überblick zu bekommen."""
 
 SYSTEM_PROMPT_DOCTOR_UK = f"""Ти AURA, медичний AI-асистент пацієнтки Галини Задорожної.
@@ -256,6 +247,8 @@ SYSTEM_PROMPT_DOCTOR_UK = f"""Ти AURA, медичний AI-асистент п
 
 МЕДИЧНА КАРТКА:
 {PATIENT_CONTEXT}
+
+ПРИМІТКА: Поточна дата та актуальний графік лікування є в контексті нижче. Використовуй ВИКЛЮЧНО ці дані — жодних вигаданих дат чи застарілих планів.
 
 ВАЖЛИВО: Ти не замінюєш лікаря. Ти інформаційна система, яка допомагає лікарю швидко отримати огляд."""
 
@@ -783,21 +776,44 @@ class AuraAssistant:
         time_of_day = "ранок" if 5 <= hour < 12 else "день" if 12 <= hour < 18 else "вечір" if 18 <= hour < 22 else "ніч"
         month = now.month
         season = "зима" if month in (12, 1, 2) else "весна" if month in (3, 4, 5) else "літо" if month in (6, 7, 8) else "осінь"
-        date_info = now.strftime("%d.%m.%Y, %H:%M")
-        time_context = f"\n\nЗАРАЗ: {date_info}, {time_of_day}, пора року — {season}. Враховуй це у розмові (вітайся відповідно до часу доби, якщо доречно)."
+        weekday_name = WEEKDAYS_UA[now.weekday()]
+        month_name = MONTHS_UA[now.month - 1]
+        time_context = (
+            f"\n\n=== ПОТОЧНА ДАТА І ЧАС (це твоє ЄДИНЕ джерело правди про дату — НЕ вигадуй) ===\n"
+            f"Сьогодні {weekday_name}, {now.day} {month_name} {now.year} року.\n"
+            f"Зараз {now.hour:02d}:{now.minute:02d}, час доби — {time_of_day}, пора року — {season}.\n"
+            f"Якщо мама запитає яке сьогодні число, місяць або рік — відповідай ТІЛЬКИ за цими даними, "
+            f"навіть якщо в історії розмови були інші дати. Не плутай місяці. "
+            f"Враховуй це у привітанні (доброго ранку/дня/вечора)."
+        )
+
+        # Lazy import графіку ліків — розриває циклічний імпорт main.py ↔ ai_assistant.py
+        try:
+            from main import MEDS_TEXT_SCHEDULE, MEDS_SCHEDULE_UPDATED_AT, MEDS_SCHEDULE_DOCTOR
+            meds_block = (
+                f"\n\n=== АКТУАЛЬНИЙ ГРАФІК ПРИЙОМУ ЛІКІВ ===\n"
+                f"План призначений лікарем: {MEDS_SCHEDULE_DOCTOR}\n"
+                f"Останнє оновлення: {MEDS_SCHEDULE_UPDATED_AT}\n"
+                f"{MEDS_TEXT_SCHEDULE}\n"
+                f"⚠️ Це ЄДИНИЙ актуальний графік. Якщо мама питає про ліки — посилайся ТІЛЬКИ на цей список. "
+                f"Не використовуй інформацію про ліки з інших джерел чи попередніх версій."
+            )
+        except ImportError as e:
+            logger.error(f"❌ Не вдалося імпортувати графік ліків з main.py: {e}")
+            meds_block = ""
 
         # Вибираємо системний промпт з контекстом іншого режиму
         if self.mode == "doctor":
             system_prompt = (
                 SYSTEM_PROMPT_DOCTOR_UK if self.doctor_lang == "uk" else SYSTEM_PROMPT_DOCTOR
-            ) + time_context
+            ) + time_context + meds_block
             if self.mama_summary_for_doctor:
                 system_prompt += (
                     f"\n\n=== AKTUELLE BESCHWERDEN DER PATIENTIN (aus dem Gespräch mit ihr) ===\n"
                     f"{self.mama_summary_for_doctor}"
                 )
         else:
-            system_prompt = SYSTEM_PROMPT_NORMAL + time_context
+            system_prompt = SYSTEM_PROMPT_NORMAL + time_context + meds_block
             if self.doctor_summary_for_mama:
                 system_prompt += (
                     f"\n\n=== ОСТАННІ РЕКОМЕНДАЦІЇ ЛІКАРЯ ===\n"
