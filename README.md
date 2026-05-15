@@ -1,45 +1,212 @@
-# AURA — персональный AI-ассистент заботы
+# AURA — AI Caregiving Assistant
 
-**AURA** — это домашний AI-ассистент для помощи пожилому человеку и его близким.  
-Проект объединяет голосовой интерфейс, медицинский контекст, напоминания о лекарствах, SOS-уведомления, переводчик для общения с врачом и простую панель управления.
+**AURA** is a personal AI-powered caregiving assistant designed to support an elderly person in everyday life.
 
-> ⚠️ AURA не заменяет врача, скорую помощь или профессиональную медицинскую консультацию.  
-> Система предназначена только для бытовой поддержки, напоминаний и передачи информации близким.
+The project combines a conversational AI assistant, medication reminders, emergency notifications, speech output, doctor-mode communication, translation support, Telegram alerts and a mobile-friendly control interface.
 
----
+It was built as a practical health-tech prototype focused on accessibility, family caregiving, real-world deployment and multimodal interaction.
 
-## Возможности
-
-- 💬 **AI-чат с медицинским контекстом**  
-  Ассистент отвечает простым языком, учитывает историю общения и заранее заданный контекст пациента.
-
-- 🩺 **Режим врача**  
-  Отдельный режим для врача или медперсонала: можно задавать вопросы о состоянии, лекарствах и истории лечения.
-
-- 🌍 **Переводчик пациент ↔ врач**  
-  Помогает общаться, если пациент и врач говорят на разных языках.
-
-- 💊 **Напоминания о лекарствах**  
-  Система показывает расписание, включает/выключает напоминания и озвучивает прием лекарств через Termux / TTS.
-
-- 🚨 **SOS-кнопка**  
-  Отправляет срочное уведомление близкому человеку через Telegram.
-
-- 📍 **Геолокация для безопасности**  
-  Отдельный трекер может отправлять координаты в Telegram через Termux Location API.
-
-- 🎙️ **Голосовое управление**  
-  Поддержка голосовых команд в браузере и озвучивание ответов.
-
-- 🎬 **Поиск фильмов и YouTube**  
-  Можно голосом искать локальные видео или открыть поиск на YouTube.
-
-- 💸 **Контроль расходов OpenAI**  
-  Отдельный endpoint показывает примерные расходы за месяц через OpenAI Admin API.
+> Privacy note: the public version of this repository should not contain real patient data, medical records, API keys, bot tokens or private chat identifiers.
 
 ---
 
-## Технологии
+## Overview
+
+AURA was created to solve a real caregiving problem: helping an elderly person interact with technology, remember important actions, communicate health-related information and quickly contact a family member when needed.
+
+The system is designed around three main users:
+
+- the patient;
+- the caregiver / family member;
+- the doctor or medical professional.
+
+AURA can speak in a warm, simple and human-like tone, while also providing a separate doctor-oriented mode with more structured medical context.
+
+---
+
+## Key Features
+
+### AI Assistant
+
+AURA includes an AI assistant powered by OpenAI.
+
+The assistant can:
+
+- answer everyday questions;
+- provide calm conversational support;
+- use predefined patient context;
+- remember recent chat history;
+- adapt tone for elderly users;
+- switch between normal mode and doctor mode;
+- send important alerts to a caregiver through Telegram.
+
+The assistant logic is separated into a dedicated AI module, which keeps the main backend cleaner and easier to maintain.
+
+---
+
+### Normal Mode and Doctor Mode
+
+AURA supports two interaction modes:
+
+#### Normal Mode
+
+Designed for everyday conversation with the patient.
+
+The assistant uses:
+
+- short responses;
+- warm tone;
+- simple wording;
+- emotionally supportive phrasing;
+- minimal technical complexity.
+
+#### Doctor Mode
+
+Designed for situations where a doctor or medical professional needs a structured summary.
+
+This mode can provide:
+
+- medical context;
+- medication-related information;
+- symptom summaries;
+- caregiver notes;
+- more formal and structured explanations.
+
+This separation demonstrates prompt engineering for different user roles and contexts.
+
+---
+
+### Medication Reminders
+
+AURA includes a reminder system for medication schedules.
+
+The backend can:
+
+- return the current medication schedule;
+- enable reminders;
+- disable reminders;
+- store reminder state;
+- trigger local voice reminders;
+- avoid repeatedly firing the same reminder.
+
+This functionality is implemented as part of the FastAPI backend and is designed to run continuously on a local device.
+
+---
+
+### Speech Output
+
+AURA supports voice output.
+
+The system uses:
+
+- OpenAI Text-to-Speech API;
+- long text splitting for TTS;
+- retry logic;
+- local audio playback through Termux;
+- fallback to Termux TTS when OpenAI TTS fails.
+
+This makes the assistant more accessible for users who may have difficulty reading from a screen.
+
+---
+
+### SOS and Telegram Alerts
+
+The project includes emergency-style communication features.
+
+AURA can send Telegram notifications to a caregiver when:
+
+- the user presses an SOS button;
+- the user provides additional SOS details;
+- the assistant detects that a caregiver should be informed;
+- geolocation data is available.
+
+Telegram integration is used as a lightweight and reliable notification channel.
+
+---
+
+### Geolocation Tracking
+
+A separate geolocation module can send the device location to Telegram.
+
+It uses Termux location providers:
+
+- network location;
+- GPS fallback;
+- error reporting to Telegram;
+- scheduled location checks.
+
+This is intended for safety scenarios where a caregiver needs to know the user’s location.
+
+---
+
+### Translator Mode
+
+AURA includes a translator mode for communication between the patient and a doctor.
+
+The translator flow supports:
+
+- starting translation mode;
+- stopping translation mode;
+- translating user messages;
+- assisting in multilingual medical communication.
+
+This is especially useful when the patient does not speak the local language.
+
+---
+
+### Billing / Usage Monitoring
+
+The backend includes an endpoint for checking OpenAI usage and estimated balance.
+
+This helps keep API costs under control when the assistant runs continuously.
+
+---
+
+### Frontend Interface
+
+The frontend is built with:
+
+- Next.js;
+- React;
+- TypeScript;
+- Tailwind CSS;
+- lucide-react.
+
+It provides a mobile-friendly UI for interacting with the assistant and controlling core features.
+
+---
+
+### Android / Termux Deployment
+
+AURA is designed to run on an Android device through Termux.
+
+The startup script handles:
+
+- wake lock;
+- environment variables;
+- dependency installation;
+- Python package installation;
+- Termux API setup;
+- autostart configuration through Termux:Boot;
+- backend launch.
+
+This makes the project more than a web prototype: it is designed for real device deployment.
+
+---
+
+## Tech Stack
+
+### Backend
+
+- Python
+- FastAPI
+- Uvicorn
+- Pydantic
+- Requests
+- python-dotenv
+- TheFuzz
+- Transliterate
+- DuckDuckGo Search
 
 ### Frontend
 
@@ -49,54 +216,181 @@
 - Tailwind CSS
 - lucide-react
 
-### Backend
+### AI and Speech
 
-- Python
-- FastAPI
-- Uvicorn
-- Pydantic
-- Requests
-- TheFuzz
-- Transliterate
-- DuckDuckGo Search
+- OpenAI Chat API
+- OpenAI Text-to-Speech API
+- Termux TTS fallback
+- Local audio playback
 
-### Интеграции
+### Integrations
 
-- OpenAI Chat Completions
-- OpenAI Text-to-Speech
 - Telegram Bot API
 - Termux API
+- Termux Location
 - Termux:Boot
+
+### Deployment Target
+
+- Android device
+- Termux environment
+- Local network frontend/backend usage
 
 ---
 
-## Структура проекта
+## Project Structure
 
 ```text
 Project-Aura/
 ├── backend/
-│   ├── main.py              # FastAPI-сервер
-│   ├── ai_assistant.py      # AI-логика, режимы, история, Telegram
-│   ├── geo_tracker.py       # Отправка геолокации в Telegram
-│   ├── requirements.txt     # Python-зависимости
-│   └── start_aura.sh        # Запуск в Termux
+│   ├── main.py              # FastAPI backend and API routes
+│   ├── ai_assistant.py      # OpenAI assistant, prompts, modes, history
+│   ├── geo_tracker.py       # Location tracking and Telegram reporting
+│   ├── requirements.txt     # Python dependencies
+│   └── start_aura.sh        # Android / Termux startup script
 │
 ├── frontend/
 │   ├── app/
-│   │   ├── page.tsx         # Главный интерфейс AURA
+│   │   ├── page.tsx         # Main UI
 │   │   ├── layout.tsx
 │   │   └── globals.css
 │   ├── package.json
-│   └── tsconfig.json
+│   ├── tsconfig.json
+│   ├── next.config.ts
+│   └── eslint.config.mjs
 │
 └── README.md
 ```
 
 ---
 
-## Переменные окружения
+## API Overview
 
-Создайте файл `.env` в папке backend:
+The backend exposes several groups of endpoints.
+
+### Health and Status
+
+```text
+GET /
+```
+
+Used to check whether the backend is running.
+
+### AI Chat
+
+```text
+POST /ai-chat
+POST /ai-chat/doctor-mode
+POST /ai-chat/normal-mode
+GET  /ai-chat/history
+POST /ai-chat/clear
+```
+
+Used for AI conversations, mode switching and chat history management.
+
+### Medication Reminders
+
+```text
+GET  /get-meds-schedule
+POST /enable-reminders
+POST /disable-reminders
+```
+
+Used to manage medication reminders.
+
+### SOS
+
+```text
+POST /sos/alert
+POST /sos/details
+```
+
+Used to send emergency alerts and additional details to the caregiver.
+
+### Translator
+
+```text
+POST /translator/start
+POST /translator/stop
+POST /translator/translate
+```
+
+Used for patient-doctor translation workflows.
+
+### Billing
+
+```text
+GET /billing/balance
+```
+
+Used to monitor OpenAI usage and estimated remaining budget.
+
+### Media
+
+```text
+GET /search-movie
+GET /video-stream
+```
+
+Used for local media search and playback functionality.
+
+---
+
+## Running Locally
+
+### Backend
+
+```bash
+cd backend
+
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+python main.py
+```
+
+On Windows:
+
+```bat
+cd backend
+
+python -m venv .venv
+.venv\Scripts\activate
+
+pip install -r requirements.txt
+python main.py
+```
+
+The backend runs on:
+
+```text
+http://localhost:8000
+```
+
+---
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend runs on:
+
+```text
+http://localhost:3000
+```
+
+---
+
+## Environment Variables
+
+AURA should be configured through environment variables.
+
+Example:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
@@ -106,79 +400,13 @@ AURA_SON_CHAT_ID=your_telegram_chat_id
 OPENAI_CREDIT_TOTAL=5.00
 ```
 
-Для публичного репозитория добавьте только пример:
-
-```bash
-cp .env.example .env
-```
-
-И убедитесь, что `.env` находится в `.gitignore`.
+For public repositories, create an `.env.example` file instead of committing real secrets.
 
 ---
 
-## Установка backend
+## Android / Termux Setup
 
-```bash
-cd backend
-
-python -m venv .venv
-source .venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-Запуск:
-
-```bash
-python main.py
-```
-
-После запуска сервер будет доступен по адресу:
-
-```text
-http://0.0.0.0:8000
-```
-
-Проверка:
-
-```bash
-curl http://localhost:8000/
-```
-
----
-
-## Установка frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Откройте в браузере:
-
-```text
-http://localhost:3000
-```
-
-В интерфейсе можно указать IP устройства, на котором работает backend, например:
-
-```text
-192.168.1.50
-```
-
----
-
-## Запуск на Android через Termux
-
-Проект рассчитан на работу в Termux, если нужно использовать:
-
-- голосовое озвучивание;
-- системные уведомления;
-- геолокацию;
-- автозапуск после перезагрузки.
-
-Установите в Termux:
+Install required packages in Termux:
 
 ```bash
 pkg update -y
@@ -190,94 +418,213 @@ pkg install -y termux-api
 pkg install -y git
 ```
 
-Установите Python-зависимости:
+Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Запуск:
+Run AURA:
 
 ```bash
 bash start_aura.sh
 ```
 
-Для автозапуска используется Termux:Boot.
+For automatic startup after reboot, the project uses Termux:Boot.
 
 ---
 
-## Основные API endpoints
+## Architecture
 
-| Метод | Endpoint | Назначение |
-|---|---|---|
-| `GET` | `/` | Проверка статуса сервера |
-| `GET` | `/get-meds-schedule` | Получить расписание лекарств |
-| `POST` | `/enable-reminders` | Включить напоминания |
-| `POST` | `/disable-reminders` | Выключить напоминания |
-| `POST` | `/ai-chat` | Отправить сообщение AI-ассистенту |
-| `POST` | `/ai-chat/doctor-mode` | Включить режим врача |
-| `POST` | `/ai-chat/normal-mode` | Вернуться в обычный режим |
-| `GET` | `/ai-chat/history` | Получить историю чата |
-| `POST` | `/ai-chat/clear` | Очистить историю чата |
-| `GET` | `/billing/balance` | Проверить расходы OpenAI |
-| `POST` | `/sos/alert` | Отправить SOS-уведомление |
-| `POST` | `/sos/details` | Отправить детали SOS голосом/текстом |
-| `POST` | `/translator/start` | Включить переводчик |
-| `POST` | `/translator/stop` | Остановить переводчик |
-| `POST` | `/translator/translate` | Перевести сообщение |
-| `GET` | `/search-movie` | Найти локальное видео |
-| `GET` | `/video-stream` | Потоковая передача видео |
+AURA follows a modular architecture:
 
----
+```text
+Frontend UI
+   ↓
+FastAPI backend
+   ↓
+AI assistant module
+   ↓
+OpenAI / Telegram / Termux integrations
+```
 
-## Безопасность
+The backend acts as the central coordinator between:
 
-Перед публикацией проекта обязательно:
+- the web interface;
+- AI responses;
+- speech output;
+- reminder scheduling;
+- emergency notifications;
+- translation mode;
+- geolocation;
+- local device capabilities.
 
-- удалить реальные API-ключи, токены и chat ID;
-- перевыпустить все ключи, которые уже попали в GitHub;
-- вынести секреты в `.env`;
-- не хранить реальные медицинские данные в открытом репозитории;
-- добавить авторизацию для доступа к backend;
-- ограничить CORS в production;
-- использовать HTTPS;
-- получать согласие человека на обработку медицинских данных и геолокации.
+This architecture allows the project to run locally while still integrating cloud AI services.
 
 ---
 
-## Важное медицинское предупреждение
+## Engineering Decisions
 
-AURA — это вспомогательная система.  
-Она может напомнить о лекарствах, пересказать сохраненную информацию, помочь связаться с близким человеком или подготовить данные для врача.
+### Why FastAPI?
 
-Но AURA:
+FastAPI provides a simple and efficient way to expose local APIs for the frontend while keeping the backend easy to extend.
 
-- не ставит диагнозы;
-- не назначает лечение;
-- не отменяет лекарства;
-- не заменяет скорую помощь;
-- не гарантирует медицинскую точность ответов AI.
+It is suitable for:
 
-При ухудшении состояния нужно обращаться к врачу или вызывать экстренную помощь.
-
----
-
-## Планы развития
-
-- [ ] Вынести весь медицинский контекст из кода в защищенный файл/БД
-- [ ] Добавить авторизацию или PIN-код
-- [ ] Сделать `.env.example`
-- [ ] Убрать секреты из репозитория и истории Git
-- [ ] Добавить Docker Compose
-- [ ] Добавить PWA-режим для планшета/телефона
-- [ ] Добавить журнал приема лекарств
-- [ ] Добавить подтверждение: «лекарство принято»
-- [ ] Добавить резервный Telegram-контакт
-- [ ] Добавить тесты backend endpoints
+- JSON APIs;
+- async-friendly workflows;
+- integration with external services;
+- background reminder logic;
+- local device automation.
 
 ---
 
-## Лицензия
+### Why Termux?
 
-Лицензия пока не указана.  
-Если проект остается семейным и содержит приватные данные, лучше держать репозиторий приватным.
+Termux allows an Android device to act as a lightweight local server.
+
+This makes it possible to use:
+
+- local audio playback;
+- TTS fallback;
+- geolocation;
+- wake locks;
+- autostart;
+- continuous background operation.
+
+This is important because AURA is designed for practical caregiving scenarios, not only as a desktop demo.
+
+---
+
+### Why Telegram?
+
+Telegram provides a reliable and simple notification channel.
+
+It allows the caregiver to receive:
+
+- SOS alerts;
+- location updates;
+- important assistant messages;
+- system error notifications.
+
+This avoids building a custom mobile notification backend at the prototype stage.
+
+---
+
+### Why Prompt Modes?
+
+The assistant has different communication requirements depending on the situation.
+
+A patient-facing assistant should be calm, warm and simple.
+
+A doctor-facing assistant should be structured, factual and concise.
+
+Separating these modes improves usability and demonstrates role-based prompt design.
+
+---
+
+## What This Project Demonstrates
+
+This project demonstrates practical experience with:
+
+- building AI-assisted applications;
+- integrating OpenAI into a real product workflow;
+- prompt engineering for different user roles;
+- FastAPI backend development;
+- Next.js frontend development;
+- Telegram Bot API integration;
+- Android automation through Termux;
+- text-to-speech implementation;
+- emergency notification flows;
+- local persistence and state management;
+- health-tech UX thinking;
+- privacy-aware software design;
+- deploying software for a real-world non-technical user.
+
+---
+
+## Privacy and Security
+
+This type of project requires extra care.
+
+Before publishing or sharing the repository:
+
+- remove all real patient data;
+- remove names, addresses, dates of birth and medical records;
+- remove all API keys and Telegram tokens;
+- rotate any secrets that were previously committed;
+- move secrets to environment variables;
+- add `.env` to `.gitignore`;
+- restrict CORS for production use;
+- add authentication before exposing the backend;
+- avoid storing sensitive medical data in plain text;
+- document that the assistant is not a medical device.
+
+Recommended `.gitignore` additions:
+
+```gitignore
+.env
+.env.local
+*.log
+chat_history.json
+state.json
+last_fired.json
+aura_tts.mp3
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.idea/
+.claude/
+```
+
+---
+
+## Medical Disclaimer
+
+AURA is a caregiving support tool and prototype.
+
+It does not:
+
+- diagnose diseases;
+- prescribe medication;
+- replace doctors;
+- replace emergency services;
+- guarantee medical accuracy.
+
+In urgent situations, users should contact medical professionals or emergency services.
+
+---
+
+## Future Improvements
+
+Possible next steps:
+
+- authentication for caregiver access;
+- encrypted storage of patient context;
+- protected admin panel;
+- medication confirmation flow;
+- caregiver dashboard;
+- multi-contact emergency escalation;
+- structured medical report export;
+- Docker-based deployment;
+- unit and integration tests;
+- frontend E2E tests;
+- cloud sync for logs and reminders;
+- configurable prompt profiles;
+- safer secret management;
+- role-based access control.
+
+---
+
+## Status
+
+AURA is a functional prototype built for a real caregiving use case.
+
+The project focuses on practical integration of AI, voice, reminders, emergency communication and mobile deployment in a single assistant system.
+
+---
+
+## Author
+
+Created by **Vladimir Zadorozhnyi** as a portfolio project demonstrating AI product development, FastAPI backend architecture, Next.js frontend work, Telegram integration, Android automation through Termux and practical health-tech problem solving.
