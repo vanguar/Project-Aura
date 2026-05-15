@@ -27,6 +27,7 @@ export default function AuraHome() {
   const [translatorDraftWho, setTranslatorDraftWho] = useState<'doctor' | 'mama'>('doctor');
   const [balance, setBalance] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const [doctorLang, setDoctorLang] = useState<'de' | 'uk'>('de');
 
   // SOS state
   const [sosCountdown, setSosCountdown] = useState(5);
@@ -257,11 +258,15 @@ export default function AuraHome() {
     recognition.start();
   };
 
-  const toggleDoctorMode = async () => {
+  const toggleDoctorMode = async (lang: 'de' | 'uk' = doctorLang) => {
     setModeSwitching('doctor');
     try {
       if (aiMode === 'normal') {
-        const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, { method: 'POST' });
+        const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang })
+        });
         const data = await res.json();
         setAiMode('doctor');
         setAiMessages([{ role: 'assistant', content: data.message }]);
@@ -1077,6 +1082,7 @@ export default function AuraHome() {
   // ARZT INFO VIEW (Для немецкого врача)
   // ============================================================
   if (view === 'arzt_info') {
+    const isUk = doctorLang === 'uk';
     return (
       <main className="h-screen w-full bg-white text-gray-900 p-4 flex flex-col overflow-hidden font-sans">
         {/* Header */}
@@ -1086,62 +1092,77 @@ export default function AuraHome() {
           </button>
           <div>
             <h1 className="text-2xl font-black text-blue-700">AURA</h1>
-            <p className="text-sm text-gray-500">KI-Gesundheitsassistent</p>
+            <p className="text-sm text-gray-500">
+              {isUk ? 'AI-помічник для лікаря 🇺🇦' : 'KI-Gesundheitsassistent 🇩🇪'}
+            </p>
           </div>
         </div>
 
-        {/* Инструкция */}
+        {/* Інструкція */}
         <div className="flex-1 overflow-y-auto space-y-4">
           <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-5">
-            <h2 className="text-xl font-black text-blue-800 mb-3">ℹ️ Was ist AURA?</h2>
+            <h2 className="text-xl font-black text-blue-800 mb-3">
+              {isUk ? 'ℹ️ Що таке AURA?' : 'ℹ️ Was ist AURA?'}
+            </h2>
             <p className="text-base leading-relaxed">
-              AURA ist ein <strong>KI-gestützter Gesundheitsassistent</strong> für die Patientin 
-              <strong> Halyna Ivanivna</strong>. Das System kennt ihre vollständige Krankengeschichte, 
-              Medikamente, Diagnosen und Behandlungsverläufe.
+              {isUk ? (
+                <>AURA — це <strong>AI-асистент з медичними даними</strong> пацієнтки <strong>Галини Іванівни</strong>. Система знає повну медичну картку, діагнози, ліки та перебіг лікування.</>
+              ) : (
+                <>AURA ist ein <strong>KI-gestützter Gesundheitsassistent</strong> für die Patientin <strong>Halyna Ivanivna</strong>. Das System kennt ihre vollständige Krankengeschichte, Medikamente, Diagnosen und Behandlungsverläufe.</>
+              )}
             </p>
           </div>
 
           <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-5">
-            <h2 className="text-xl font-black text-green-800 mb-3">🩺 Für Ärzte & Rettungsdienst</h2>
+            <h2 className="text-xl font-black text-green-800 mb-3">
+              {isUk ? '🩺 Для лікарів та медперсоналу' : '🩺 Für Ärzte & Rettungsdienst'}
+            </h2>
             <p className="text-base leading-relaxed mb-3">
-              Sie können mit dem KI-Assistenten <strong>auf Deutsch sprechen</strong>. 
-              Er beantwortet Ihre Fragen zur Krankengeschichte der Patientin:
+              {isUk
+                ? <><strong>Запитуйте українською</strong> — AURA відповість медичною термінологією на основі даних пацієнтки:</>
+                : <>Sie können mit dem KI-Assistenten <strong>auf Deutsch sprechen</strong>. Er beantwortet Ihre Fragen zur Krankengeschichte der Patientin:</>
+              }
             </p>
             <ul className="space-y-2 text-base">
-              <li className="flex items-start gap-2">
-                <span className="text-green-600 font-bold mt-0.5">1.</span>
-                <span>Drücken Sie unten die Taste <strong>„Mit KI sprechen"</strong></span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-green-600 font-bold mt-0.5">2.</span>
-                <span>Drücken Sie die große blaue Taste <strong>„SPRECHEN"</strong> und stellen Sie Ihre Frage auf Deutsch</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-green-600 font-bold mt-0.5">3.</span>
-                <span>Der Assistent antwortet auf Deutsch mit allen relevanten medizinischen Informationen</span>
-              </li>
+              {isUk ? (
+                <>
+                  <li className="flex items-start gap-2"><span className="text-green-600 font-bold mt-0.5">1.</span><span>Натисніть кнопку <strong>«Говорити з AI»</strong> нижче</span></li>
+                  <li className="flex items-start gap-2"><span className="text-green-600 font-bold mt-0.5">2.</span><span>Натисніть велику синю кнопку <strong>«ГОВОРИТИ»</strong> і задайте питання українською</span></li>
+                  <li className="flex items-start gap-2"><span className="text-green-600 font-bold mt-0.5">3.</span><span>AURA відповість із повною медичною інформацією про пацієнтку</span></li>
+                </>
+              ) : (
+                <>
+                  <li className="flex items-start gap-2"><span className="text-green-600 font-bold mt-0.5">1.</span><span>Drücken Sie unten die Taste <strong>„Mit KI sprechen"</strong></span></li>
+                  <li className="flex items-start gap-2"><span className="text-green-600 font-bold mt-0.5">2.</span><span>Drücken Sie die große blaue Taste <strong>„SPRECHEN"</strong> und stellen Sie Ihre Frage auf Deutsch</span></li>
+                  <li className="flex items-start gap-2"><span className="text-green-600 font-bold mt-0.5">3.</span><span>Der Assistent antwortet auf Deutsch mit allen relevanten medizinischen Informationen</span></li>
+                </>
+              )}
             </ul>
           </div>
 
           <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-5">
-            <h2 className="text-lg font-black text-amber-800 mb-2">⚠️ Hinweis</h2>
+            <h2 className="text-lg font-black text-amber-800 mb-2">
+              {isUk ? '⚠️ Важливо' : '⚠️ Hinweis'}
+            </h2>
             <p className="text-sm leading-relaxed text-amber-900">
-              Die KI ersetzt keine ärztliche Diagnose. Alle Angaben basieren auf den vom Patienten 
-              hinterlegten Daten und dienen der schnellen Informationsübermittlung bei Sprachbarrieren.
+              {isUk
+                ? 'AI не замінює лікаря. Всі дані надані пацієнткою та її родиною і слугують для швидкої передачі медичної інформації.'
+                : 'Die KI ersetzt keine ärztliche Diagnose. Alle Angaben basieren auf den vom Patienten hinterlegten Daten und dienen der schnellen Informationsübermittlung bei Sprachbarrieren.'
+              }
             </p>
           </div>
         </div>
 
-        {/* Кнопка — войти в режим врача */}
+        {/* Кнопка — увійти в режим лікаря */}
         <button
           onClick={async () => {
             await openAiChat();
-            await toggleDoctorMode();
+            await toggleDoctorMode(doctorLang);
           }}
           className="mt-4 w-full py-5 bg-green-600 hover:bg-green-700 text-white rounded-2xl border-4 border-green-400 flex items-center justify-center gap-3 text-xl font-black uppercase active:scale-95 shadow-xl"
         >
           <Stethoscope size={32} />
-          Mit KI sprechen 🎙️
+          {isUk ? 'Говорити з AI 🎙️' : 'Mit KI sprechen 🎙️'}
         </button>
       </main>
     );
@@ -1205,13 +1226,22 @@ export default function AuraHome() {
           </button>
         </div>
 
-        <button 
-          onClick={() => setView('arzt_info')}
-          className="flex-1 rounded-[30px] border-4 flex items-center justify-center gap-3 active:scale-95 shadow-lg bg-white border-blue-300"
-        >
-          <Stethoscope size={32} className="text-blue-700" />
-          <span className="text-xl font-black uppercase text-blue-800">Für den Arzt 🇩🇪</span>
-        </button>
+        <div className="flex-1 flex gap-2">
+          <button
+            onClick={() => { setDoctorLang('de'); setView('arzt_info'); }}
+            className="flex-1 rounded-[30px] border-4 flex items-center justify-center gap-2 active:scale-95 shadow-lg bg-white border-blue-300"
+          >
+            <Stethoscope size={26} className="text-blue-700" />
+            <span className="text-base font-black uppercase text-blue-800">Лікар 🇩🇪</span>
+          </button>
+          <button
+            onClick={() => { setDoctorLang('uk'); setView('arzt_info'); }}
+            className="flex-1 rounded-[30px] border-4 flex items-center justify-center gap-2 active:scale-95 shadow-lg bg-white border-yellow-400"
+          >
+            <Stethoscope size={26} className="text-yellow-700" />
+            <span className="text-base font-black uppercase text-yellow-800">Лікар 🇺🇦</span>
+          </button>
+        </div>
 
         <button 
           onClick={startSosConfirm}
