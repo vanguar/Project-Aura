@@ -47,6 +47,10 @@ export default function AuraHome() {
   useEffect(() => {
     const savedIp = localStorage.getItem('aura_server_ip');
     if (savedIp) setServerIp(savedIp);
+    const savedDoctorLang = localStorage.getItem('aura_doctor_lang');
+    if (savedDoctorLang === 'de' || savedDoctorLang === 'uk') {
+      setDoctorLang(savedDoctorLang);
+    }
     return () => { if (recognitionRef.current) recognitionRef.current.stop(); };
   }, []);
 
@@ -141,6 +145,7 @@ export default function AuraHome() {
       setAiMode(data.mode);
       if (data.doctor_lang === 'de' || data.doctor_lang === 'uk') {
         setDoctorLang(data.doctor_lang);
+        localStorage.setItem('aura_doctor_lang', data.doctor_lang);
       }
       setAiMessages(data.messages.map((m: any) => ({
         role: m.role === 'model' ? 'assistant' : 'user',
@@ -280,6 +285,10 @@ export default function AuraHome() {
           signal: controller.signal
         });
         const data = await res.json();
+        if (data.lang === 'de' || data.lang === 'uk') {
+          setDoctorLang(data.lang);
+          localStorage.setItem('aura_doctor_lang', data.lang);
+        }
         setAiMode('doctor');
         setAiMessages([{ role: 'assistant', content: data.message }]);
       } else {
@@ -1198,6 +1207,10 @@ export default function AuraHome() {
                 signal: controller.signal
               });
               const data = await res.json();
+              if (data.lang === 'de' || data.lang === 'uk') {
+                setDoctorLang(data.lang);
+                localStorage.setItem('aura_doctor_lang', data.lang);
+              }
               setAiMode('doctor');
               setAiMessages([{ role: 'assistant', content: data.message }]);
             } catch {
@@ -1276,14 +1289,14 @@ export default function AuraHome() {
 
         <div className="flex-1 flex gap-2">
           <button
-            onClick={() => { setDoctorLang('de'); setView('arzt_info'); }}
+            onClick={() => { setDoctorLang('de'); localStorage.setItem('aura_doctor_lang', 'de'); setView('arzt_info'); }}
             className="flex-1 rounded-[30px] border-4 flex items-center justify-center gap-2 active:scale-95 shadow-lg bg-white border-blue-300"
           >
             <Stethoscope size={26} className="text-blue-700" />
             <span className="text-base font-black uppercase text-blue-800">Лікар 🇩🇪</span>
           </button>
           <button
-            onClick={() => { setDoctorLang('uk'); setView('arzt_info'); }}
+            onClick={() => { setDoctorLang('uk'); localStorage.setItem('aura_doctor_lang', 'uk'); setView('arzt_info'); }}
             className="flex-1 rounded-[30px] border-4 flex items-center justify-center gap-2 active:scale-95 shadow-lg bg-white border-yellow-400"
           >
             <Stethoscope size={26} className="text-yellow-700" />

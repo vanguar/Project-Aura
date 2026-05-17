@@ -9,6 +9,7 @@ import logging
 import threading
 import mimetypes
 import requests as http_requests
+import re
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,9 +45,91 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+UA_MONTHS_GENITIVE = [
+    "січня", "лютого", "березня", "квітня", "травня", "червня",
+    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
+]
+
+UA_UNITS = {
+    0: "нуль", 1: "один", 2: "два", 3: "три", 4: "чотири",
+    5: "п'ять", 6: "шість", 7: "сім", 8: "вісім", 9: "дев'ять",
+}
+UA_TEENS = {
+    10: "десять", 11: "одинадцять", 12: "дванадцять", 13: "тринадцять",
+    14: "чотирнадцять", 15: "п'ятнадцять", 16: "шістнадцять",
+    17: "сімнадцять", 18: "вісімнадцять", 19: "дев'ятнадцять",
+}
+UA_TENS = {
+    20: "двадцять", 30: "тридцять", 40: "сорок", 50: "п'ятдесят",
+    60: "шістдесят", 70: "сімдесят", 80: "вісімдесят", 90: "дев'яносто",
+}
+UA_HUNDREDS = {
+    100: "сто", 200: "двісті", 300: "триста", 400: "чотириста",
+    500: "п'ятсот", 600: "шістсот", 700: "сімсот", 800: "вісімсот", 900: "дев'ятсот",
+}
+
+
+def number_to_ua_words(num: int) -> str:
+    """Small Ukrainian cardinal number formatter for TTS-friendly text."""
+    if num < 0:
+        return "мінус " + number_to_ua_words(abs(num))
+    if num < 10:
+        return UA_UNITS[num]
+    if num < 20:
+        return UA_TEENS[num]
+    if num < 100:
+        tens = num // 10 * 10
+        rest = num % 10
+        return UA_TENS[tens] + (f" {UA_UNITS[rest]}" if rest else "")
+    if num < 1000:
+        hundreds = num // 100 * 100
+        rest = num % 100
+        return UA_HUNDREDS[hundreds] + (f" {number_to_ua_words(rest)}" if rest else "")
+    if num < 10000:
+        thousands = num // 1000
+        rest = num % 1000
+        if thousands == 1:
+            prefix = "тисяча"
+        elif thousands == 2:
+            prefix = "дві тисячі"
+        elif thousands in (3, 4):
+            prefix = f"{number_to_ua_words(thousands)} тисячі"
+        else:
+            prefix = f"{number_to_ua_words(thousands)} тисяч"
+        return prefix + (f" {number_to_ua_words(rest)}" if rest else "")
+    return str(num)
+
+
+def normalize_text_for_tts(text: str) -> str:
+    """Make dates, times, and common numeric forms easier for Ukrainian TTS."""
+    def replace_date(match):
+        day = int(match.group(1))
+        month = int(match.group(2))
+        year = int(match.group(3))
+        if 1 <= month <= 12:
+            return f"{number_to_ua_words(day)} {UA_MONTHS_GENITIVE[month - 1]} {number_to_ua_words(year)} року"
+        return match.group(0)
+
+    def replace_time(match):
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        return f"{number_to_ua_words(hour)} година {number_to_ua_words(minute)} хвилин"
+
+    def replace_decimal(match):
+        whole = int(match.group(1))
+        fraction = int(match.group(2))
+        return f"{number_to_ua_words(whole)} ціла {number_to_ua_words(fraction)}"
+
+    normalized = re.sub(r"\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b", replace_date, text)
+    normalized = re.sub(r"\b(\d{1,2}):(\d{2})\b", replace_time, normalized)
+    normalized = re.sub(r"\b(\d{1,3})\.(\d{1,3})\b", replace_decimal, normalized)
+    return normalized
+
+
 def speak_openai_tts(text):
     """Озвучити текст через OpenAI TTS API з підтримкою довгих текстів"""
     api_key = os.environ.get("OPENAI_API_KEY", OPENAI_API_KEY)
+    text = normalize_text_for_tts(text)
     
     # Розбиваємо на чанки по ~3500 символів (по реченнях)
     chunks = split_text_for_tts(text)
