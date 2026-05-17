@@ -139,6 +139,9 @@ export default function AuraHome() {
       const res = await fetch(`http://${serverIp}:8000/ai-chat/history`, { signal: controller.signal });
       const data = await res.json();
       setAiMode(data.mode);
+      if (data.doctor_lang === 'de' || data.doctor_lang === 'uk') {
+        setDoctorLang(data.doctor_lang);
+      }
       setAiMessages(data.messages.map((m: any) => ({
         role: m.role === 'model' ? 'assistant' : 'user',
         content: m.content
@@ -190,7 +193,7 @@ export default function AuraHome() {
 
     if (!success) {
       setPendingMessage(userMsg);
-      const errMsg = aiMode === 'doctor'
+      const errMsg = aiMode === 'doctor' && doctorLang === 'de'
         ? '❌ Verbindungsfehler. Ihre Nachricht wurde gespeichert — drücken Sie "Wiederholen".'
         : '❌ Помилка зв\'язку. Повідомлення збережено — натисніть "Повторити".';
       setAiMessages(prev => [...prev, { role: 'system', content: errMsg }]);
@@ -219,7 +222,7 @@ export default function AuraHome() {
       if (text.trim()) {
         sendAiMessage(text);
       } else {
-        const msg = aiMode === 'doctor' 
+        const msg = aiMode === 'doctor' && doctorLang === 'de'
           ? '⚠️ Sprache nicht erkannt. Bitte versuchen Sie es erneut.'
           : '⚠️ Не вдалося розпізнати. Спробуйте ще раз.';
         setAiMessages(prev => [...prev, { role: 'system', content: msg }]);
@@ -232,19 +235,19 @@ export default function AuraHome() {
       const errorType = event?.error || 'unknown';
       let msg = '';
       if (errorType === 'network') {
-        msg = aiMode === 'doctor'
+        msg = aiMode === 'doctor' && doctorLang === 'de'
           ? '⚠️ Kein Internet. Bitte prüfen Sie die Verbindung.'
           : '⚠️ Немає інтернету. Перевірте з\'єднання.';
       } else if (errorType === 'not-allowed' || errorType === 'service-not-allowed') {
-        msg = aiMode === 'doctor'
+        msg = aiMode === 'doctor' && doctorLang === 'de'
           ? '⚠️ Mikrofon nicht erlaubt. Bitte Berechtigung erteilen.'
           : '⚠️ Мікрофон заблоковано. Дозвольте доступ.';
       } else if (errorType === 'no-speech') {
-        msg = aiMode === 'doctor'
+        msg = aiMode === 'doctor' && doctorLang === 'de'
           ? '⚠️ Keine Sprache erkannt. Bitte sprechen Sie lauter.'
           : '⚠️ Не почула голос. Говоріть голосніше.';
       } else {
-        msg = aiMode === 'doctor'
+        msg = aiMode === 'doctor' && doctorLang === 'de'
           ? `⚠️ Fehler: ${errorType}. Bitte erneut versuchen.`
           : `⚠️ Помилка: ${errorType}. Спробуйте ще раз.`;
       }
@@ -254,7 +257,7 @@ export default function AuraHome() {
     recognition.onend = () => {
       setAiListening(false);
       if (!gotResult) {
-        const msg = aiMode === 'doctor'
+        const msg = aiMode === 'doctor' && doctorLang === 'de'
           ? '⚠️ Keine Sprache erkannt. Bitte erneut versuchen.'
           : '⚠️ Не вдалося розпізнати мову. Спробуйте ще раз.';
         setAiMessages(prev => [...prev, { role: 'system', content: msg }]);
@@ -850,10 +853,10 @@ export default function AuraHome() {
             <div className="text-center text-slate-500 mt-10">
               <Bot size={64} className="mx-auto mb-4 opacity-30" />
               <p className="text-xl font-bold">
-                {aiMode === 'doctor' ? 'Sprechen Sie mit mir' : 'Натисніть 🎙️ щоб почати розмову'}
+                {aiMode === 'doctor' && !isDoctorUk ? 'Sprechen Sie mit mir' : 'Натисніть 🎙️ щоб почати розмову'}
               </p>
               <p className="text-sm mt-2 opacity-50">
-                {aiMode === 'doctor' ? 'Ich kenne die vollständige Krankengeschichte' : 'Я знаю всю медичну історію та допоможу'}
+                {aiMode === 'doctor' && !isDoctorUk ? 'Ich kenne die vollständige Krankengeschichte' : 'Я знаю всю медичну історію та допоможу'}
               </p>
             </div>
           )}
@@ -1013,7 +1016,7 @@ export default function AuraHome() {
                   disabled={aiLoading}
                   className="w-full mb-2 py-3 bg-orange-600 rounded-2xl border-2 border-orange-400 text-lg font-black flex items-center justify-center gap-2 active:scale-95 animate-pulse"
                 >
-                  🔄 {aiMode === 'doctor' ? 'WIEDERHOLEN' : 'ПОВТОРИТИ'}
+                  🔄 {aiMode === 'doctor' && !isDoctorUk ? 'WIEDERHOLEN' : 'ПОВТОРИТИ'}
                 </button>
               )}
               <div className="flex gap-2 mb-2">
@@ -1022,7 +1025,7 @@ export default function AuraHome() {
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') sendAiMessage(textInput); }}
-                  placeholder={aiMode === 'doctor' ? 'Nachricht eingeben...' : 'Написати повідомлення...'}
+                  placeholder={aiMode === 'doctor' && !isDoctorUk ? 'Nachricht eingeben...' : 'Написати повідомлення...'}
                   className="flex-1 bg-slate-800 text-white text-lg px-4 py-3 rounded-2xl border border-slate-700 outline-none focus:border-blue-500"
                 />
                 <button
@@ -1044,8 +1047,8 @@ export default function AuraHome() {
               >
                 {aiListening ? <MicOff size={32} /> : <Mic size={32} />}
                 {aiListening 
-                  ? (aiMode === 'doctor' ? 'HÖRE ZU...' : 'СЛУХАЮ...')
-                  : (aiMode === 'doctor' ? 'SPRECHEN' : 'ГОВОРИТИ 🎙️')
+                  ? (aiMode === 'doctor' && !isDoctorUk ? 'HÖRE ZU...' : 'СЛУХАЮ...')
+                  : (aiMode === 'doctor' && !isDoctorUk ? 'SPRECHEN' : 'ГОВОРИТИ 🎙️')
                 }
               </button>
             </>

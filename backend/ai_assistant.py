@@ -1162,6 +1162,7 @@ class AuraAssistant:
             "has_mama_context": len(self.mama_messages) > 0,
             "has_doctor_context": len(self.doctor_messages) > 0,
             "doctor_session_active": self.doctor_session_active,
+            "doctor_lang": self.doctor_lang,
             "translator_active": self.translator_active,
             "messages": [
                 {
