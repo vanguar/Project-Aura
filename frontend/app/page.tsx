@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any, react/no-unescaped-entities */
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Film, Heart, Settings, Youtube, ArrowLeft, Bell, BellOff, Bot, Stethoscope, Mic, MicOff, Trash2, Send, Languages, ShieldAlert, Phone, X } from 'lucide-react';
 
@@ -77,7 +79,7 @@ export default function AuraHome() {
       setMedsSchedule(data.schedule);
       setRemindersActive(data.enabled);
       setView('meds');
-    } catch (e) {
+    } catch {
       alert("Помилка зв'язку. Перевірте IP в налаштуваннях.");
     }
   };
@@ -114,7 +116,7 @@ export default function AuraHome() {
           const res = await fetch(`http://${serverIp}:8000/search-movie?query=${encodeURIComponent(q)}`);
           const data = await res.json();
           setStatusText(data.found ? `✅ Грає: ${data.filename}` : "❌ Не знайдено");
-        } catch (err) { setStatusText("❌ Помилка сервера"); }
+        } catch { setStatusText("❌ Помилка сервера"); }
       } else {
         window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`, "_blank");
       }
@@ -130,18 +132,22 @@ export default function AuraHome() {
   // ============================================================
 
   const openAiChat = async () => {
+    setView('ai'); // immediate — don't wait for network
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 10000);
     try {
-      const res = await fetch(`http://${serverIp}:8000/ai-chat/history`);
+      const res = await fetch(`http://${serverIp}:8000/ai-chat/history`, { signal: controller.signal });
       const data = await res.json();
       setAiMode(data.mode);
       setAiMessages(data.messages.map((m: any) => ({
         role: m.role === 'model' ? 'assistant' : 'user',
         content: m.content
       })));
-    } catch (e) {
+    } catch {
       setAiMessages([]);
+    } finally {
+      clearTimeout(t);
     }
-    setView('ai');
   };
 
   const sendAiMessage = async (text: string) => {
@@ -168,7 +174,7 @@ export default function AuraHome() {
         }
         success = true;
         break;
-      } catch (e) {
+      } catch {
         if (attempt < 2) {
           setAiMessages(prev => {
             const last = prev[prev.length - 1];
@@ -260,19 +266,24 @@ export default function AuraHome() {
 
   const toggleDoctorMode = async (lang: 'de' | 'uk' = doctorLang) => {
     setModeSwitching('doctor');
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 55000);
     try {
       if (aiMode === 'normal') {
         const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lang })
+          body: JSON.stringify({ lang }),
+          signal: controller.signal
         });
         const data = await res.json();
         setAiMode('doctor');
         setAiMessages([{ role: 'assistant', content: data.message }]);
       } else {
-        // Повертаємо нормальний режим — сервер генерує резюме лікаря для мами
-        const res = await fetch(`http://${serverIp}:8000/ai-chat/normal-mode`, { method: 'POST' });
+        const res = await fetch(`http://${serverIp}:8000/ai-chat/normal-mode`, {
+          method: 'POST',
+          signal: controller.signal
+        });
         const data = await res.json();
         setAiMode('normal');
         setAiMessages([
@@ -280,10 +291,12 @@ export default function AuraHome() {
           { role: 'assistant', content: data.message }
         ]);
       }
-    } catch (e) {
-      alert("Помилка зв'язку з сервером");
+    } catch {
+      setAiMessages(prev => [...prev, { role: 'system', content: "❌ Помилка зв'язку з сервером" }]);
+    } finally {
+      clearTimeout(t);
+      setModeSwitching(null);
     }
-    setModeSwitching(null);
   };
 
   const clearAiHistory = async () => {
@@ -291,7 +304,7 @@ export default function AuraHome() {
       await fetch(`http://${serverIp}:8000/ai-chat/clear`, { method: 'POST' });
       setAiMessages([]);
       setAiMode('normal');
-    } catch (e) {
+    } catch {
       alert("Помилка очищення");
     }
   };
@@ -327,14 +340,18 @@ export default function AuraHome() {
 
   const sendSosAlert = async () => {
     setSosSending(true);
-    try {
-      await fetch(`http://${serverIp}:8000/sos/alert`, { method: 'POST' });
-    } catch (e) {
-      // Even if network fails, move to details screen
-    }
     setSosAlertSent(true);
-    setSosSending(false);
-    setView('sos_details');
+    setView('sos_details'); // immediate — don't wait for network
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 5000);
+    try {
+      await fetch(`http://${serverIp}:8000/sos/alert`, { method: 'POST', signal: controller.signal });
+    } catch {
+      // screen already switched, backend accepted in background
+    } finally {
+      clearTimeout(t);
+      setSosSending(false);
+    }
   };
 
   const startSosVoice = () => {
@@ -375,7 +392,7 @@ export default function AuraHome() {
       const data = await res.json();
       setSosInterpretation(data.interpretation || "Надіслано");
       setSosDetailsSent(true);
-    } catch (e) {
+    } catch {
       setSosInterpretation("Помилка відправки, але тривогу вже надіслано!");
       setSosDetailsSent(true);
     }
@@ -397,32 +414,41 @@ export default function AuraHome() {
 
   const startTranslator = async () => {
     setModeSwitching('translator');
+    setAiMode('translator'); // immediate
+    setAiMessages([{
+      role: 'system',
+      content: '🔄 Режим перекладача увімкнено.\n🩺 Натисніть синю кнопку — говорить ЛІКАР (🇩🇪)\n👩 Натисніть жовту кнопку — говорить МАМА (🇺🇦)'
+    }]);
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 10000);
     try {
-      await fetch(`http://${serverIp}:8000/translator/start`, { method: 'POST' });
-      setAiMode('translator');
-      setAiMessages([{
-        role: 'system',
-        content: '🔄 Режим перекладача увімкнено.\n🩺 Натисніть синю кнопку — говорить ЛІКАР (🇩🇪)\n👩 Натисніть жовту кнопку — говорить МАМА (🇺🇦)'
-      }]);
-    } catch (e) {
-      alert("Помилка зв'язку з сервером");
+      await fetch(`http://${serverIp}:8000/translator/start`, { method: 'POST', signal: controller.signal });
+    } catch {
+      // Non-critical: UI already switched, backend state will sync on next translate
+    } finally {
+      clearTimeout(t);
+      setModeSwitching(null);
     }
-    setModeSwitching(null);
   };
 
   const stopTranslator = async () => {
     setModeSwitching('stop');
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 10000);
     try {
-      await fetch(`http://${serverIp}:8000/translator/stop`, { method: 'POST' });
+      await fetch(`http://${serverIp}:8000/translator/stop`, { method: 'POST', signal: controller.signal });
       setAiMode('normal');
       setAiMessages([{
         role: 'system',
         content: '✅ Сеанс перекладу завершено. Звіт надіслано синові.'
       }]);
-    } catch (e) {
-      alert("Помилка зв'язку з сервером");
+    } catch {
+      setAiMode('normal');
+      setAiMessages(prev => [...prev, { role: 'system', content: '✅ Сеанс завершено.' }]);
+    } finally {
+      clearTimeout(t);
+      setModeSwitching(null);
     }
-    setModeSwitching(null);
   };
 
   const sendTranslatorMessage = async (text: string, who: 'doctor' | 'mama') => {
@@ -448,7 +474,7 @@ export default function AuraHome() {
         content += `\n${litLabel}: ${data.literal}`;
       }
       setAiMessages(prev => [...prev, { role: 'assistant', content }]);
-    } catch (e) {
+    } catch {
       setAiMessages(prev => [...prev, { role: 'assistant', content: '❌ Помилка перекладу' }]);
     }
     setAiLoading(false);
@@ -555,18 +581,18 @@ export default function AuraHome() {
           <div className="flex gap-3">
             <button
               onClick={sendSosAlert}
-              className="flex-1 py-5 bg-red-600 rounded-3xl border-4 border-red-400 text-xl font-black uppercase flex flex-col items-center justify-center gap-1 active:scale-95"
+              disabled={sosSending}
+              className="flex-1 py-5 bg-red-600 rounded-3xl border-4 border-red-400 text-xl font-black uppercase flex flex-col items-center justify-center gap-1 active:scale-95 disabled:opacity-60"
             >
               <Phone size={28} />
-              <span>НАДІСЛАТИ</span>
+              <span>{sosSending ? '...' : 'НАДІСЛАТИ'}</span>
               <span className="text-xs font-bold opacity-70 normal-case">тривогу зараз</span>
             </button>
 
             <button
-              onClick={() => {
-                sendSosAlert();
-              }}
-              className="flex-1 py-5 bg-blue-600 rounded-3xl border-4 border-blue-400 text-xl font-black uppercase flex flex-col items-center justify-center gap-1 active:scale-95"
+              onClick={sendSosAlert}
+              disabled={sosSending}
+              className="flex-1 py-5 bg-blue-600 rounded-3xl border-4 border-blue-400 text-xl font-black uppercase flex flex-col items-center justify-center gap-1 active:scale-95 disabled:opacity-60"
             >
               <Mic size={28} />
               <span>ЗАПИСАТИ</span>
@@ -689,7 +715,7 @@ export default function AuraHome() {
               )}
               <p className="text-base text-slate-400 text-center mt-2">
                 Володя отримав тривогу та деталі.{'\n'}
-                Чекайте — він зв'яжеться з вами.
+                Чекайте — він зв&apos;яжеться з вами.
               </p>
             </div>
 
@@ -1156,8 +1182,26 @@ export default function AuraHome() {
         {/* Кнопка — увійти в режим лікаря */}
         <button
           onClick={async () => {
-            await openAiChat();
-            await toggleDoctorMode(doctorLang);
+            setView('ai'); // immediate
+            setModeSwitching('doctor');
+            const controller = new AbortController();
+            const t = setTimeout(() => controller.abort(), 55000);
+            try {
+              const res = await fetch(`http://${serverIp}:8000/ai-chat/doctor-mode`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lang: doctorLang }),
+                signal: controller.signal
+              });
+              const data = await res.json();
+              setAiMode('doctor');
+              setAiMessages([{ role: 'assistant', content: data.message }]);
+            } catch {
+              setAiMessages([{ role: 'system', content: "❌ Помилка з'єднання" }]);
+            } finally {
+              clearTimeout(t);
+              setModeSwitching(null);
+            }
           }}
           className="mt-4 w-full py-5 bg-green-600 hover:bg-green-700 text-white rounded-2xl border-4 border-green-400 flex items-center justify-center gap-3 text-xl font-black uppercase active:scale-95 shadow-xl"
         >

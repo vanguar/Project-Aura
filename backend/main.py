@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import platform
@@ -9,7 +10,7 @@ import threading
 import mimetypes
 import requests as http_requests
 from datetime import datetime
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from thefuzz import fuzz
@@ -31,6 +32,10 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 TTS_AUDIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aura_tts.mp3")
 
 app = FastAPI()
+
+# Serializes all ai_bot state operations so concurrent requests don't corrupt
+# messages/mode. SOS alert is excluded — it has its own independent path.
+_ai_lock = asyncio.Lock()
 
 app.add_middleware(
     CORSMiddleware,
@@ -299,18 +304,16 @@ async def ai_chat(body: ChatMessage):
     """Основний ендпоінт чату з AI"""
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="Порожнє повідомлення")
-    
-    result = ai_bot.chat(body.message)
-    
-    # Озвучення відповіді через OpenAI TTS
+
+    async with _ai_lock:
+        result = await asyncio.to_thread(ai_bot.chat, body.message)
+
     try:
         tts_text = result["reply"]
-        threading.Thread(
-            target=speak_openai_tts, args=(tts_text,), daemon=True
-        ).start()
+        threading.Thread(target=speak_openai_tts, args=(tts_text,), daemon=True).start()
     except Exception as e:
         logger.warning(f"TTS помилка: {e}")
-    
+
     return result
 
 class DoctorModeRequest(BaseModel):
@@ -320,7 +323,8 @@ class DoctorModeRequest(BaseModel):
 async def ai_doctor_mode(body: Optional[DoctorModeRequest] = None):
     """Переключити на режим лікаря. lang: 'de' (Німеччина) або 'uk' (Україна)."""
     lang = body.lang if (body and body.lang in ("de", "uk")) else "de"
-    ai_bot.set_doctor_mode(lang=lang)
+    async with _ai_lock:
+        await asyncio.to_thread(ai_bot.set_doctor_mode, lang=lang)
     if lang == "uk":
         message = "Режим лікаря активовано. Я знаю повну медичну історію пацієнтки і готова надати інформацію."
     else:
@@ -330,7 +334,8 @@ async def ai_doctor_mode(body: Optional[DoctorModeRequest] = None):
 @app.post("/ai-chat/normal-mode")
 async def ai_normal_mode():
     """Повернути звичайний режим (українська) + резюме від лікаря"""
-    doctor_summary = ai_bot.set_normal_mode()
+    async with _ai_lock:
+        doctor_summary = await asyncio.to_thread(ai_bot.set_normal_mode)
     return {
         "status": "normal_mode",
         "message": doctor_summary
@@ -339,12 +344,14 @@ async def ai_normal_mode():
 @app.get("/ai-chat/history")
 async def ai_chat_history():
     """Отримати історію діалогу"""
-    return ai_bot.get_history()
+    async with _ai_lock:
+        return await asyncio.to_thread(ai_bot.get_history)
 
 @app.post("/ai-chat/clear")
 async def ai_chat_clear():
     """Очистити історію діалогу"""
-    ai_bot.clear_history()
+    async with _ai_lock:
+        await asyncio.to_thread(ai_bot.clear_history)
     return {"status": "cleared"}
 
 # ============================================================
@@ -384,14 +391,10 @@ async def get_billing_balance():
 # ============================================================
 
 @app.post("/sos/alert")
-async def sos_alert():
-    """Миттєве SOS-сповіщення в Telegram"""
-    try:
-        ai_bot.send_sos_alert()
-        return {"status": "sent", "message": "SOS alert sent to Telegram"}
-    except Exception as e:
-        logger.error(f"SOS alert error: {e}")
-        return {"status": "error", "message": str(e)}
+async def sos_alert(background_tasks: BackgroundTasks):
+    """Миттєве SOS-сповіщення — відповідає одразу, Telegram іде у фоні"""
+    background_tasks.add_task(ai_bot.send_sos_alert)
+    return {"status": "accepted", "message": "SOS прийнято"}
 
 class SOSVoice(BaseModel):
     text: str
@@ -401,9 +404,10 @@ async def sos_details(body: SOSVoice):
     """AI інтерпретує голосове повідомлення SOS і відправляє в Telegram"""
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Порожнє повідомлення")
-    
+
     try:
-        interpretation = ai_bot.interpret_sos_voice(body.text)
+        # No _ai_lock: interpret_sos_voice doesn't touch shared chat state
+        interpretation = await asyncio.to_thread(ai_bot.interpret_sos_voice, body.text)
         return {"status": "sent", "interpretation": interpretation}
     except Exception as e:
         logger.error(f"SOS details error: {e}")
@@ -416,13 +420,15 @@ async def sos_details(body: SOSVoice):
 @app.post("/translator/start")
 async def translator_start():
     """Увімкнути режим перекладача"""
-    ai_bot.start_translator()
+    async with _ai_lock:
+        await asyncio.to_thread(ai_bot.start_translator)
     return {"status": "translator_active"}
 
 @app.post("/translator/stop")
 async def translator_stop():
     """Зупинити режим перекладача та отримати звіт"""
-    messages = ai_bot.stop_translator()
+    async with _ai_lock:
+        messages = await asyncio.to_thread(ai_bot.stop_translator)
     return {"status": "translator_stopped", "messages": messages}
 
 class TranslatorMessage(BaseModel):
@@ -435,19 +441,17 @@ async def translator_translate(body: TranslatorMessage):
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Порожнє повідомлення")
 
-    if body.who == "doctor":
-        result = ai_bot.translate_doctor(body.text)
-    else:
-        result = ai_bot.translate_mama(body.text)
+    async with _ai_lock:
+        if body.who == "doctor":
+            result = await asyncio.to_thread(ai_bot.translate_doctor, body.text)
+        else:
+            result = await asyncio.to_thread(ai_bot.translate_mama, body.text)
 
     ai_translation = result["ai"]
     literal_translation = result["literal"]
 
-    # Озвучення AI-перекладу через OpenAI TTS
     try:
-        threading.Thread(
-            target=speak_openai_tts, args=(ai_translation,), daemon=True
-        ).start()
+        threading.Thread(target=speak_openai_tts, args=(ai_translation,), daemon=True).start()
     except Exception as e:
         logger.warning(f"TTS помилка: {e}")
 
