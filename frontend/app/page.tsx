@@ -786,7 +786,7 @@ export default function AuraHome() {
           ) : (
             <>
               <button
-                onClick={toggleDoctorMode}
+                onClick={() => toggleDoctorMode()}
                 disabled={modeSwitching !== null}
                 className={`flex-1 py-3 rounded-2xl border-2 flex items-center justify-center gap-2 text-sm font-black active:scale-95 ${
                   modeSwitching === 'doctor' ? 'opacity-70' : ''
