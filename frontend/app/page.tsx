@@ -205,7 +205,7 @@ export default function AuraHome() {
 
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
-    recognition.lang = aiMode === 'doctor' ? 'de-DE' : 'uk-UA';
+    recognition.lang = aiMode === 'doctor' && doctorLang === 'de' ? 'de-DE' : 'uk-UA';
     recognition.continuous = false;
 
     let gotResult = false;
@@ -735,6 +735,7 @@ export default function AuraHome() {
   // AI CHAT VIEW
   // ============================================================
   if (view === 'ai') {
+    const isDoctorUk = doctorLang === 'uk';
     return (
       <main className="h-screen w-full bg-slate-950 text-white flex flex-col overflow-hidden">
         {/* Header */}
@@ -747,13 +748,13 @@ export default function AuraHome() {
               {aiMode === 'translator' ? (
                 <><Languages size={24} /> ПЕРЕКЛАДАЧ</>
               ) : aiMode === 'doctor' ? (
-                <><Stethoscope size={24} /> ARZT-MODUS</>
+                <><Stethoscope size={24} /> {isDoctorUk ? 'РЕЖИМ ЛІКАРЯ' : 'ARZT-MODUS'}</>
               ) : (
                 <><Bot size={24} /> AI-ПОМІЧНИК</>
               )}
             </h2>
             <p className="text-xs opacity-60">
-              {aiMode === 'translator' ? '🇩🇪 Deutsch ↔ Українська 🇺🇦' : aiMode === 'doctor' ? 'Deutsch · Medizinisch' : 'Українська · Галина Іванівна'}
+              {aiMode === 'translator' ? '🇩🇪 Deutsch ↔ Українська 🇺🇦' : aiMode === 'doctor' ? (isDoctorUk ? 'Українська · Медично' : 'Deutsch · Medizinisch') : 'Українська · Галина Іванівна'}
             </p>
           </div>
           <button onClick={clearAiHistory} className="p-2">
@@ -811,7 +812,7 @@ export default function AuraHome() {
                 ) : aiMode === 'doctor' ? (
                   <><ArrowLeft size={16} /> МАМА 🇺🇦</>
                 ) : (
-                  <><Stethoscope size={16} /> ЛІКАР 🇩🇪</>
+                  <><Stethoscope size={16} /> {isDoctorUk ? 'ЛІКАР 🇺🇦' : 'ЛІКАР 🇩🇪'}</>
                 )}
               </button>
               {aiMode === 'normal' && (
